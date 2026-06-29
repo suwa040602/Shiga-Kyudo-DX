@@ -180,7 +180,26 @@ function dbDeleteDraft(){
 function dbPullDraft(cb){
   fetch(DRAFT_DB+'.json')
     .then(function(r){return r.json();})
-    .then(function(d){bunDraftRemote=(d&&d.d)?d:null;if(cb)cb();})
+    .then(function(d){
+      if(d&&d.d){
+        // Firebaseは配列をオブジェクトで返す場合があるので正規化
+        if(d.tateList&&!Array.isArray(d.tateList))
+          d.tateList=Object.keys(d.tateList).sort(function(a,b){return a-b;}).map(function(k){return d.tateList[k];});
+        if(d.order&&!Array.isArray(d.order))
+          d.order=Object.keys(d.order).sort(function(a,b){return a-b;}).map(function(k){return d.order[k];});
+        if(d.data){
+          Object.keys(d.data).forEach(function(name){
+            var v=d.data[name];
+            if(!Array.isArray(v))
+              d.data[name]=Object.keys(v).sort(function(a,b){return a-b;}).map(function(k){return v[k];});
+          });
+        }
+        bunDraftRemote=d;
+      } else {
+        bunDraftRemote=null;
+      }
+      if(cb)cb();
+    })
     .catch(function(){if(cb)cb();});
 }
 function dbListenDraft(){
@@ -195,9 +214,17 @@ function dbListenDraft(){
           bunDraftRemote=d;
           // 的中入力中なら画面に反映
           if(tab==='input'&&bunStep==='input'){
-            if(d.data)bunData=d.data;
-            if(d.order)bunOrder=d.order;
+            if(d.data){
+              bunData={};
+              Object.keys(d.data).forEach(function(name){
+                var v=d.data[name];
+                bunData[name]=Array.isArray(v)?v:Object.keys(v).sort(function(a,b){return a-b;}).map(function(k){return v[k];});
+              });
+            }
+            if(d.order)bunOrder=Array.isArray(d.order)?d.order:Object.values(d.order);
             paint();
+          } else if(tab==='input'&&bunStep==='mo-sess'){
+            paint(); // バナーを更新
           }
         }
       }catch(ex){}
@@ -583,8 +610,20 @@ function bindEvents(){
   q('btn-draft-resume',function(el){el.addEventListener('click',function(){
     var dr=bunDraftRemote;
     if(!dr)return;
-    bunD=dr.d||'';bunSess=dr.sess||0;bunTate=dr.tate||1;
-    bunTateList=dr.tateList||[4];bunOrder=dr.order||null;bunData=dr.data||{};
+    bunD=dr.d||'';
+    bunSess=dr.sess||0;
+    bunTate=dr.tate||1;
+    // Firebaseは配列をオブジェクトで返す場合があるので変換
+    var tl=dr.tateList||[4];
+    bunTateList=Array.isArray(tl)?tl:Object.keys(tl).sort(function(a,b){return a-b;}).map(function(k){return tl[k];});
+    bunOrder=dr.order?Array.isArray(dr.order)?dr.order:Object.values(dr.order):null;
+    bunData={};
+    if(dr.data){
+      Object.keys(dr.data).forEach(function(name){
+        var v=dr.data[name];
+        bunData[name]=Array.isArray(v)?v:Object.keys(v).sort(function(a,b){return a-b;}).map(function(k){return v[k];});
+      });
+    }
     bunStep='input';bunViewMode='table';bunRoundPos=0;_draftBannerDismissed=true;paint();
   });});
   q('btn-draft-dismiss',function(el){el.addEventListener('click',function(){
