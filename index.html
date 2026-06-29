@@ -18,11 +18,11 @@ h1{margin:0;font-size:17px;font-weight:700}
 .t{flex:1;padding:10px 3px;font-size:12.5px;border:none;background:transparent;color:var(--sub);cursor:pointer;font-family:inherit;border-left:1px solid var(--ln)}
 .t:first-child{border-left:none}
 .t.on{background:var(--acc);color:#fff;font-weight:700}
-.card{background:var(--sf);border:1px solid var(--ln);border-radius:13px;padding:16px 18px}
+.card{background:var(--sf);border:1px solid var(--ln);border-radius:13px;padding:16px 18px;overflow:hidden}
 .mb10{margin-bottom:10px}
 label{display:block;font-size:12px;color:var(--sub);margin:11px 0 4px;font-weight:600}
 .opt{color:var(--faint);font-weight:400}
-input,select{width:100%;padding:9px 11px;font-size:14px;border:1px solid var(--ln2);border-radius:9px;background:var(--sf);color:var(--ink);font-family:inherit;outline:none;appearance:auto}
+input,select{width:100%;padding:9px 11px;font-size:14px;border:1px solid var(--ln2);border-radius:9px;background:var(--sf);color:var(--ink);font-family:inherit;outline:none;appearance:auto;box-sizing:border-box;-webkit-box-sizing:border-box}
 input:focus,select:focus{border-color:var(--acc)}
 .g2{display:grid;grid-template-columns:1fr 1fr;gap:11px}.g2>*{min-width:0}
 .row{display:flex;gap:8px;align-items:center}
@@ -108,8 +108,8 @@ tbody tr:nth-child(even){background:var(--sec)}
 .bun-tc-miss{background:var(--acc-bg);color:var(--bad)}
 .bun-sep-row td{height:5px;background:var(--sec);border-top:2px dashed var(--ln2);border-bottom:2px dashed var(--ln2);padding:0}
 .bun-name-row td,.bun-name-row th{position:sticky;bottom:0;z-index:3;border-top:2px solid var(--ink);background:var(--sec)}
-.bun-name-cell{text-align:center;vertical-align:top;width:50px;min-width:50px}
-.bun-vname{-webkit-writing-mode:vertical-rl;writing-mode:vertical-rl;text-orientation:mixed;font-size:13px;font-weight:700;padding:6px 2px;display:inline-block;letter-spacing:.05em}
+.bun-name-cell{text-align:center;vertical-align:top;width:50px;min-width:50px;word-break:keep-all}
+.bun-vname{-webkit-writing-mode:vertical-rl;-ms-writing-mode:tb-rl;writing-mode:vertical-rl;-webkit-text-orientation:mixed;text-orientation:mixed;font-size:13px;font-weight:700;padding:6px 2px;display:inline-block;letter-spacing:.05em}
 .bun-dragging{opacity:.3}
 .bun-drop-over{outline:2px solid var(--acc);outline-offset:-2px}
 </style>
@@ -140,6 +140,8 @@ var CSV_ICON='iVBORw0KGgoAAAANSUhEUgAAACgAAAAoCAYAAACM/rhtAAAFNUlEQVR42u1YXYhcZx
 var PRINT_ICON='iVBORw0KGgoAAAANSUhEUgAAABwAAAAcCAYAAAByDd+UAAAEV0lEQVR42s1WS2xWRRT+zszcR//+tWJbYjGCj5XRjVEDEZOaIA8T4oKEjRs3ChFEC8pGTW7vTjE8CoWkLFywMTExunABRRMaDSwMagwhujBqalqstKW09H/cO+dz0f7w01daJepJJncmc+d8c86c850D/Msii+6Ri/8xnxCASG3238uc+ydJYtI01S1vdT8MBKeougJcop0GAOQqiRf7Du0eICkicpulbvaZy5cfFQBQNQ+JcC2Vu4wYT6qImHndRKqokIYSAzhG1dUABrq6umS2a+tvLkmSyOdDq+zW9kF/Yax1Ayw+7Du85/7luGzT3p5BUrc/3Txy4RxgngU0TVPWgOst5MyGXgSwufNomRC7HLAte7ojghaW5TRNFYD2z/OGAoAdSU/xrkp0b7WUWc+qWmfWA+ag9/IMQpPT5yLWze9Sn4tYT5NHBUHeT+FOzfVbKzRsKHpm14bOHtx/AwBcR5LY/jTNo+v6gcbmJVqdtHDB9EVorcV5eD+99H7h2PMOEA8QTii91jmSzANIMdPoBIA3O5LE1bnUPJiXpz4Shu9WbRZaw8xmIZ2oKS3DrQGNZjJpKJELNaz6rHoQYh6YE6UiUCqv9R3ZOXQn827T3p5xEbTdljl1r+FAyhO9vQFI+Sfjpo5ZqXd7HooQIiwmCSFCJIlJlmlRCgBpqjUdsu8461PRLX461fQOU9vCgEliNk62rBEiWhJHWkd6K+K1fKb71d+WBdifpvnznceeVOe+Bv3SgtQrBCqwiDa+fuSps2nnpSUCcqa2HL2H3k+YIHw8Z0VdWY114byJ73MreVxRX9aGwNlvrHN31/QAJxYDFAWm2V2lOxOgevrAjt+XRW2CqhdkNT3EcZX5ASkCxB1JT7F56oZUqqaJhkGSJOb8ZNu2MIg780rJc1YqCaAubLBZVnqv1PTY6XjiUmCETS/sf79pvNBImWBMUuYAkrgSRIWX44nStgobjQQ2hvqxc4ApeP7KEKdBUcosQEJpjAE50DD6g2VgMgP3SSUvVOMJeBfGLVml3DuHvLfu621lGK3xlalA6HMvsg7Ct0cmwzUX2wf9c0MNTYXmVgVGALTMHJ+eT41788XJHdc7dh1vjCP+DME7RvG9WLESRHlWwS99h18Zvdl8zCcbO4+uF5HP+g6/tnLzvp5dNiwc8JVSBtDdKqMEId5FsfPV8u4zTX+e2nS99aoX3fDloTe+WzxKSUm6umRoaJVtbx/058fZCDEZILw62XvyvmZ+6hnQB1WpZw6bBXQe0rhu5R9bvvIBnWQCNiZJYmaoU9O0i7UgMvW0lqapjo2t0DRNVdRQSLth97GWosui8eGBUfHlUVfWkfohvjw6PmxHh88NN+RqWgBYUcNaAZ7+3uprFmYa68bFos1F+pOlGonbZKG+L265AQA6/UTSbK2dWHZfun37x/ba6sFHnInjLMuWVguDAFROrS1e+XHGwv9hXzq7R/07Shez7i/7/0jIkFea6gAAAABJRU5ErkJggg==';
 var DB='https://shiga-kyudo-dx-default-rtdb.asia-southeast1.firebasedatabase.app/kyudo';
 var _dbTimer=null,_lastPush=0,_loading=true,_everHadRemoteData=false,_lastKnownRemoteTs=0;
+var DRAFT_DB='https://shiga-kyudo-dx-default-rtdb.asia-southeast1.firebasedatabase.app/kyudo/bunDraft';
+var _draftTimer=null,_lastDraftPush=0,_draftBannerDismissed=false,bunDraftRemote=null;
 
 function _dot(col,tip){var el=document.getElementById('sync-dot');if(el){el.style.background=col;el.title=tip;}}
 function dbPush(){
@@ -156,6 +158,53 @@ function dbPush(){
     .catch(function(){_dot('var(--bad)','接続できません');});
 }
 function scheduleDbPush(){if(_loading)return;if(_dbTimer)clearTimeout(_dbTimer);_dbTimer=setTimeout(dbPush,600);}
+function _buildDraftPayload(){
+  return {d:bunD,sess:bunSess,tate:bunTate,tateList:bunTateList,order:bunOrder,data:bunData,updatedAt:Date.now()};
+}
+function dbPushDraft(){
+  if(_loading)return;
+  var payload=_buildDraftPayload();
+  _lastDraftPush=payload.updatedAt;
+  fetch(DRAFT_DB+'.json',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)})
+    .catch(function(){});
+}
+function scheduleDbPushDraft(){
+  if(_draftTimer)clearTimeout(_draftTimer);
+  _draftTimer=setTimeout(dbPushDraft,500);
+}
+function dbDeleteDraft(){
+  fetch(DRAFT_DB+'.json',{method:'PUT',headers:{'Content-Type':'application/json'},body:'null'})
+    .catch(function(){});
+  bunDraftRemote=null;
+}
+function dbPullDraft(cb){
+  fetch(DRAFT_DB+'.json')
+    .then(function(r){return r.json();})
+    .then(function(d){bunDraftRemote=(d&&d.d)?d:null;if(cb)cb();})
+    .catch(function(){if(cb)cb();});
+}
+function dbListenDraft(){
+  try{
+    var src=new EventSource(DRAFT_DB+'.json');
+    src.addEventListener('put',function(e){
+      try{
+        var p=JSON.parse(e.data);var d=p&&p.data;
+        if(!d||!d.d){bunDraftRemote=null;}
+        else{
+          if(d.updatedAt&&d.updatedAt<=_lastDraftPush)return; // 自分の書き込みは無視
+          bunDraftRemote=d;
+          // 的中入力中なら画面に反映
+          if(tab==='input'&&bunStep==='input'){
+            if(d.data)bunData=d.data;
+            if(d.order)bunOrder=d.order;
+            paint();
+          }
+        }
+      }catch(ex){}
+    });
+    src.onerror=function(){};
+  }catch(ex){}
+}
 function _applyRemote(d){
   if(d.M&&d.M.length>0)_everHadRemoteData=true;
   if(d.t)_lastKnownRemoteTs=d.t;
@@ -243,6 +292,7 @@ var fYear='all',fGender='all';
 var form={mb:'',d:CURM,sess:1,sh:'20',hi:''};
 var editId=null,editForm={};
 var pDel=null,pReset=false,attOpen=false,indivMb='',tableView='rank',indivMoView='table',indivWkView='table';
+var rankExpandName='';
 var bunD='',bunSess=0,bunData={},bunOrder=null,_bunDrag=null;
 var bunStep='mo-sess',bunTate=1,bunPerTate=4,bunTateList=[4];
 var bunViewMode='table',bunRoundPos=0;
@@ -273,7 +323,7 @@ function membersSorted(){
 function adminLogin(){
   if(adminMode||shonaiMode){
     adminMode=false;shonaiMode=false;
-    pinPendingType=null;pinPendingVal='';wipeStep=0;
+    editId=null;pinPendingType=null;pinPendingVal='';wipeStep=0;
     if(tab!=='input'&&tab!=='table'&&tab!=='penalty')tab='input';
     paint();return;
   }
@@ -317,8 +367,9 @@ function load(){
     }
     var ms2=getMo();if(ms2.length)mo=ms2[0];
     var ss2=getSessKeys();if(ss2.length)sesKey=ss2[0];
-    paint();
+    dbPullDraft(function(){paint();});
     dbListen();
+    dbListenDraft();
   });
 }
 function svS(){try{localStorage.setItem(KS,JSON.stringify(S));}catch(e){}scheduleDbPush();}
@@ -341,6 +392,33 @@ function getMo(){
 }
 function fm(m){var p=m.split('-');return p[0]+'年'+parseInt(p[1],10)+'月';}
 function fsk(k){var p=k.split('|');return fm(p[0])+' 第'+p[1]+'週';}
+// iOSのtype="month"未サポート対応：年月を2つのselectで表示
+function moSelect(id,val){
+  var now=new Date();
+  var curY=now.getFullYear();
+  var curM=now.getMonth()+1;
+  var selY=val?parseInt(val.split('-')[0],10):0;
+  var selM=val?parseInt(val.split('-')[1],10):0;
+  var yOpts='<option value="">年</option>';
+  for(var y=curY-2;y<=curY+1;y++){
+    yOpts+='<option value="'+y+'"'+(selY===y?' selected':'')+'>'+y+'年</option>';
+  }
+  var mOpts='<option value="">月</option>';
+  for(var m=1;m<=12;m++){
+    var mv=('0'+m).slice(-2);
+    mOpts+='<option value="'+mv+'"'+(selM===m?' selected':'')+'>'+m+'月</option>';
+  }
+  return '<div class="row" style="gap:8px" id="'+id+'-wrap">'
+    +'<select id="'+id+'-y" style="flex:1">'+yOpts+'</select>'
+    +'<select id="'+id+'-m" style="flex:1">'+mOpts+'</select>'
+    +'</div>';
+}
+function moSelectVal(id){
+  var y=document.getElementById(id+'-y');
+  var m=document.getElementById(id+'-m');
+  if(!y||!m||!y.value||!m.value)return '';
+  return y.value+'-'+m.value;
+}
 function getSessKeys(){
   var seen={};
   S.filter(function(e){return e.sess>0;}).forEach(function(e){seen[e.d+'|'+e.sess]=1;});
@@ -431,8 +509,9 @@ function presentMembers(){
   return sorted.filter(function(n){return A[key].indexOf(n)>=0;});
 }
 function sw(t){
+  if(t==='settings'&&!adminMode)return;
   if(!adminMode&&!shonaiMode&&t!=='input'&&t!=='table'&&t!=='penalty'&&t!=='history')return;
-  tab=t;pDel=null;pReset=false;editId=null;pinPendingType=null;pinPendingVal='';wipeStep=0;if(t!=='input'){bunStep='mo-sess';}if(t!=='table')tableView='rank';if(t!=='penalty'){penSubTab='penalty';jobView='list';}paint();
+  tab=t;pDel=null;pReset=false;editId=null;pinPendingType=null;pinPendingVal='';wipeStep=0;rankExpandName='';if(t!=='input'){bunStep='mo-sess';}if(t!=='table')tableView='rank';if(t!=='penalty'){penSubTab='penalty';jobView='list';}paint();
 }
 
 /* ------ paintTabs: data-tab + addEventListener ------ */
@@ -467,7 +546,9 @@ function paint(){
 function bindEvents(){
   /* tabs already bound in paintTabs */
   /* 入力/分附 tab */
-  q('bun-mo',function(el){el.addEventListener('change',function(){bunD=this.value;paint();});});
+  /* bun-mo: year/month selects (iOS対応でtype=monthを2つのselectに分割) */
+  q('bun-mo-y',function(el){el.addEventListener('change',function(){var v=moSelectVal('bun-mo');if(v){bunD=v;paint();}});});
+  q('bun-mo-m',function(el){el.addEventListener('change',function(){var v=moSelectVal('bun-mo');if(v){bunD=v;paint();}});});
   q('bun-sess',function(el){el.addEventListener('change',function(){bunSess=+this.value||0;paint();});});
   q('btn-bun-next-att',function(el){el.addEventListener('click',function(){if(bunD&&bunSess){bunStep='att';paint();}});});
   q('btn-bun-back-mo',function(el){el.addEventListener('click',function(){bunStep='mo-sess';paint();});});
@@ -491,7 +572,7 @@ function bindEvents(){
   q('btn-bun-next-input',function(el){el.addEventListener('click',function(){
     var total=bunTateList.slice(0,bunTate).reduce(function(a,n){return a+n;},0);
     if(total!==getBunMembers().length)return;
-    bunStep='input';paint();
+    bunStep='input';paint();dbPushDraft();
   });});
   q('btn-bun-back-cfg',function(el){el.addEventListener('click',function(){bunStep='config';paint();});});
   q('btn-bun-view-table',function(el){el.addEventListener('click',function(){bunViewMode='table';paint();});});
@@ -499,7 +580,16 @@ function bindEvents(){
   q('btn-bun-round-prev',function(el){el.addEventListener('click',function(){if(bunRoundPos>0){bunRoundPos--;paint();}});});
   q('btn-bun-round-next',function(el){el.addEventListener('click',function(){bunRoundPos++;paint();});});
   q('btn-bun-save',function(el){el.addEventListener('click',doSaveBun);});
-  q('btn-bun-reset',function(el){el.addEventListener('click',resetBun);});
+  q('btn-draft-resume',function(el){el.addEventListener('click',function(){
+    var dr=bunDraftRemote;
+    if(!dr)return;
+    bunD=dr.d||'';bunSess=dr.sess||0;bunTate=dr.tate||1;
+    bunTateList=dr.tateList||[4];bunOrder=dr.order||null;bunData=dr.data||{};
+    bunStep='input';bunViewMode='table';bunRoundPos=0;_draftBannerDismissed=true;paint();
+  });});
+  q('btn-draft-dismiss',function(el){el.addEventListener('click',function(){
+    _draftBannerDismissed=true;paint();
+  });});
   document.querySelectorAll('[data-bun-idx]').forEach(function(el){
     el.addEventListener('click',function(){
       toggleBunShot(this.getAttribute('data-bun-name'),parseInt(this.getAttribute('data-bun-idx'),10));
@@ -513,16 +603,16 @@ function bindEvents(){
   document.querySelectorAll('[data-att-name]').forEach(function(el){
     el.addEventListener('click',function(){toggleAtt(this.getAttribute('data-att-name'));});
   });
-  q('sel-mo',function(el){el.addEventListener('change',function(){mo=this.value;paint();});});
+  q('sel-mo',function(el){el.addEventListener('change',function(){mo=this.value;rankExpandName='';paint();});});
   q('sel-fy',function(el){el.addEventListener('change',function(){fYear=this.value;paint();});});
   q('sel-fg',function(el){el.addEventListener('change',function(){fGender=this.value;paint();});});
-  q('sel-sk',function(el){el.addEventListener('change',function(){sesKey=this.value;paint();});});
+  q('sel-sk',function(el){el.addEventListener('change',function(){sesKey=this.value;rankExpandName='';paint();});});
   q('btn-csv-mo',function(el){el.addEventListener('click',function(){doCSV('mo');});});
   q('btn-csv-se',function(el){el.addEventListener('click',function(){doCSV('se');});});
   q('btn-print-mo',function(el){el.addEventListener('click',function(){doPrint('mo');});});
   q('btn-print-se',function(el){el.addEventListener('click',function(){doPrint('se');});});
-  q('btn-mo',function(el){el.addEventListener('click',function(){tMode='monthly';paint();});});
-  q('btn-se',function(el){el.addEventListener('click',function(){tMode='session';paint();});});
+  q('btn-mo',function(el){el.addEventListener('click',function(){tMode='monthly';rankExpandName='';paint();});});
+  q('btn-se',function(el){el.addEventListener('click',function(){tMode='session';rankExpandName='';paint();});});
   /* individual tab */
   q('sel-indiv',function(el){el.addEventListener('change',function(){indivMb=this.value;indivMoView='table';indivWkView='table';paint();});});
   q('btn-indiv-back',function(el){el.addEventListener('click',function(){tableView='rank';paint();});});
@@ -541,11 +631,18 @@ function bindEvents(){
       tableView='indiv';indivMoView='table';indivWkView='table';paint();
     });
   });
+  document.querySelectorAll('[data-rank-expand]').forEach(function(el){
+    el.addEventListener('click',function(){
+      var name=this.getAttribute('data-rank-expand');
+      rankExpandName=(rankExpandName===name)?'':name;
+      paint();
+    });
+  });
   /* history tab */
   q('sel-hmb',function(el){el.addEventListener('change',function(){histMb=this.value;paint();});});
   document.querySelectorAll('[data-edit-id]').forEach(function(el){
     el.addEventListener('click',function(){
-      if(!canEditP())return;
+      if(!canEditHistory())return;
       var id=parseInt(this.getAttribute('data-edit-id'),10);
       editId=id;
       editForm={d:this.getAttribute('data-edit-d'),sess:parseInt(this.getAttribute('data-edit-sess'),10)};
@@ -556,7 +653,7 @@ function bindEvents(){
     el.addEventListener('click',function(){editId=null;paint();});
   });
   document.querySelectorAll('[data-edit-save]').forEach(function(el){
-    el.addEventListener('click',function(){if(!canEditP())return;doEditSave(parseInt(this.getAttribute('data-edit-save'),10));});
+    el.addEventListener('click',function(){if(!canEditHistory())return;doEditSave(parseInt(this.getAttribute('data-edit-save'),10));});
   });
   /* 分附 tab events handled above */
   q('btn-export',function(el){el.addEventListener('click',doExport);});
@@ -669,7 +766,7 @@ function bindEvents(){
   /* delete buttons (history) */
   document.querySelectorAll('[data-del-id]').forEach(function(el){
     el.addEventListener('click',function(){
-      if(!canEditP())return;
+      if(!canEditHistory())return;
       var id=parseInt(this.getAttribute('data-del-id'),10);
       if(pDel===id){doDel(id);}else{pDel=id;paint();}
     });
@@ -707,7 +804,7 @@ function tIn(){
     +'<p style="margin:0 0 3px;font-size:14px;font-weight:700">練習の的中を記録する</p>'
     +'<p style="margin:0;font-size:11px;color:var(--sub)">同じ月・同じ週に複数回入力すると合計に加算されます</p>'
     +'<label>対象の月</label>'
-    +'<input id="inp-mo" type="month" value="'+form.d+'">'
+    +moSelect('inp-mo',form.d)
     +'<label>週 <span class="opt">（今月は第'+(prev>0?prev:0)+'週まで入力済み）</span></label>'
     +'<input id="inp-sess" type="number" min="1" value="'+form.sess+'" style="width:50%">'
     +attSection()
@@ -836,10 +933,10 @@ function getBunDefaultOrder(){
       scores[name]=sh>0?hi/sh:-1;
     }
   });
-  // 的中率高い順、データなしは末尾
+  // 的中率低い順（右が高い順）、データなしは末尾
   return base.sort(function(a,b){
     var ha=scores.hasOwnProperty(a),hb=scores.hasOwnProperty(b);
-    if(ha&&hb)return scores[b]-scores[a];
+    if(ha&&hb)return scores[a]-scores[b];
     if(ha)return -1;
     if(hb)return 1;
     return 0;
@@ -892,6 +989,7 @@ function toggleBunShot(name,idx){
     tc.textContent=hi;
     tc.style.color=hi>=14?'var(--good)':hi>=10?'var(--info)':hi>=7?'var(--warn)':'var(--ink)';
   }
+  scheduleDbPushDraft();
 }
 function reorderBunColumn(src,tgt){
   if(!bunOrder)bunOrder=getBunMembers().slice();
@@ -941,10 +1039,23 @@ function tBun(){
     var sessOpts='<option value="0">-- 週を選択 --</option>'
       +[1,2,3,4,5].map(function(n){return '<option value="'+n+'"'+(bunSess===n?' selected':'')+'>第'+n+'週</option>';}).join('');
     var ready=!!(moVal&&bunSess);
+    var draftBanner='';
+    if(bunDraftRemote&&!_draftBannerDismissed){
+      var dr=bunDraftRemote;
+      var drTime=dr.updatedAt?new Date(dr.updatedAt).toLocaleTimeString('ja-JP',{hour:'2-digit',minute:'2-digit'}):'';
+      draftBanner='<div style="margin-bottom:10px;padding:10px 12px;background:#fef9e7;border:1px solid var(--warn,#e6a817);border-radius:10px">'
+        +'<div style="font-size:12px;font-weight:700;color:var(--warn,#b7800a);margin-bottom:6px">📋 進行中の分附があります</div>'
+        +'<div style="font-size:11px;color:var(--sub);margin-bottom:8px">'+(dr.d?fm(dr.d):'')+(dr.sess?' 第'+dr.sess+'週':'')+(drTime?' — 更新 '+drTime:'')+'</div>'
+        +'<div class="row" style="gap:8px">'
+          +'<button id="btn-draft-dismiss" class="btn bh" style="flex:1;padding:8px;font-size:12px">無視して新規作成</button>'
+          +'<button id="btn-draft-resume" class="btn bg" style="flex:1;padding:8px;font-size:12px;margin-top:0">続きから入力 →</button>'
+        +'</div></div>';
+    }
     return '<div class="card mb10">'
+      +draftBanner
       +'<p style="margin:0 0 10px;font-size:14px;font-weight:700">① 対象の月・週を選択</p>'
       +'<label style="margin-top:0">対象の月</label>'
-      +'<input id="bun-mo" type="month" value="'+moVal+'" style="width:100%">'
+      +moSelect('bun-mo',moVal)
       +'<label>週</label>'
       +'<select id="bun-sess" style="width:100%">'+sessOpts+'</select>'
       +'<button id="btn-bun-next-att" class="btn prim" style="width:100%;margin-top:12px;padding:12px'+(ready?'':';opacity:0.45')+'"'+(ready?'':' disabled')+'>次へ：出席者を選択 →</button>'
@@ -1144,8 +1255,7 @@ function tBun(){
     +modeBar
     +inputArea
     +'<div class="row" style="gap:8px;margin-top:12px">'
-      +'<button id="btn-bun-reset" class="btn bh" style="flex:1">リセット</button>'
-      +'<button id="btn-bun-save" class="btn prim" style="margin-top:0;flex:2;padding:12px">記録する</button>'
+      +'<button id="btn-bun-save" class="btn prim" style="margin-top:0;width:100%;padding:12px">記録する</button>'
     +'</div></div>';
 }
 function doSaveBun(){
@@ -1158,9 +1268,10 @@ function doSaveBun(){
   });
   if(!saved)return fl('記録がありません',true);
   svS();fl(saved+'名分の分附を記録しました（'+fm(bunD)+' 第'+bunSess+'週）');
-  bunData={};bunD='';bunSess=0;bunStep='mo-sess';bunOrder=null;bunTate=1;bunTateList=[4];bunViewMode='table';bunRoundPos=0;paint();
+  dbDeleteDraft();
+  bunData={};bunD='';bunSess=0;bunStep='mo-sess';bunOrder=null;bunTate=1;bunTateList=[4];bunViewMode='table';bunRoundPos=0;_draftBannerDismissed=false;bunDraftRemote=null;paint();
 }
-function resetBun(){bunData={};bunD='';bunSess=0;bunStep='mo-sess';bunOrder=null;bunTate=1;bunTateList=[4];bunViewMode='table';bunRoundPos=0;paint();}
+function resetBun(){dbDeleteDraft();bunData={};bunD='';bunSess=0;bunStep='mo-sess';bunOrder=null;bunTate=1;bunTateList=[4];bunViewMode='table';bunRoundPos=0;_draftBannerDismissed=false;bunDraftRemote=null;paint();}
 
 
 /* ======= PENALTY ======= */
@@ -1192,6 +1303,7 @@ var WTYPES=[
   {n:13,lbl:'その他（任意）',pts:0}
 ];
 function canEditP(){return adminMode||shonaiMode;}
+function canEditHistory(){return adminMode;} // 履歴の編集（月・週変更）は管理者限定。削除はcanEditPのまま（管理者+渉内）
 function penStats(name){
   var all=P.filter(function(e){return e.mb===name;});
   var add=0,red=0;
@@ -1496,7 +1608,10 @@ function mMonthly(){
     +'<button id="btn-csv-mo" class="btn bg" style="display:inline-flex;align-items:center;padding:4px 8px"><img src="data:image/png;base64,'+CSV_ICON+'" style="width:28px;height:28px"></button>'
     +'<button id="btn-print-mo" class="btn bi" style="display:inline-flex;align-items:center;padding:4px 8px"><img src="data:image/png;base64,'+PRINT_ICON+'" style="width:28px;height:28px"></button></div>'
     +filterRowHTML()
-    +rankCard(st,thi,tsh,(mo==='all'?'通算':fm(mo))+filterLabel());
+    +rankCard(st,thi,tsh,(mo==='all'?'通算':fm(mo))+filterLabel(),function(name){
+      return S.filter(function(e){return e.mb===name&&(mo==='all'||e.d===mo);})
+        .slice().sort(function(a,b){return b.id-a.id;});
+    });
 }
 function mSession(){
   var ss=getSessKeys();
@@ -1509,19 +1624,43 @@ function mSession(){
     +'<button id="btn-csv-se" class="btn bg" style="display:inline-flex;align-items:center;padding:4px 8px"><img src="data:image/png;base64,'+CSV_ICON+'" style="width:28px;height:28px"></button>'
     +'<button id="btn-print-se" class="btn bi" style="display:inline-flex;align-items:center;padding:4px 8px"><img src="data:image/png;base64,'+PRINT_ICON+'" style="width:28px;height:28px"></button></div>'
     +filterRowHTML()
-    +rankCard(st,thi,tsh,(sesKey?fsk(sesKey):'')+filterLabel());
+    +rankCard(st,thi,tsh,(sesKey?fsk(sesKey):'')+filterLabel(),function(name){
+      if(!sesKey)return [];
+      var p=sesKey.split('|');var d=p[0];var si=parseInt(p[1],10);
+      return S.filter(function(e){return e.mb===name&&e.d===d&&e.sess===si;})
+        .slice().sort(function(a,b){return b.id-a.id;});
+    });
 }
-function rankCard(st,thi,tsh,label){
+function rankCard(st,thi,tsh,label,getRecords){
   if(!st.length)return '<div class="emp">記録がありません</div>';
   var rows='';
   st.forEach(function(m){
+    var isOpen=rankExpandName===m.name;
     rows+='<tr>'
       +'<td style="font-weight:'+(m.rank<=3?700:400)+';color:'+(m.rank<=3?'var(--warn)':'var(--sub)')+'">'+m.rank+'</td>'
       +'<td class="tl" style="overflow:hidden;white-space:nowrap;text-overflow:ellipsis">'
         +'<span class="nm indiv-link" data-indiv-name="'+esc(m.name)+'" style="cursor:pointer;border-bottom:1px solid var(--ln2)">'+m.name+'</span>'+yb(m.name)
       +'</td>'
       +'<td style="font-weight:700;color:'+rc(m.rate)+'">'+(m.rate*100).toFixed(1)+'%</td>'
-      +'<td class="mono" style="color:var(--sub)">'+m.hi+'/'+m.sh+'</td></tr>';
+      +'<td class="mono" style="color:'+(isOpen?'var(--acc)':'var(--sub)')+';cursor:pointer;text-decoration:underline;text-decoration-style:dotted" data-rank-expand="'+esc(m.name)+'">'+m.hi+'/'+m.sh+'</td></tr>';
+    if(isOpen&&getRecords){
+      var recs=getRecords(m.name);
+      var inner;
+      if(!recs.length){
+        inner='<div style="padding:8px 4px;font-size:12px;color:var(--faint)">この期間の記録はありません</div>';
+      }else{
+        inner=recs.map(function(e){
+          return '<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 4px;border-bottom:1px solid var(--ln2);font-size:12px">'
+            +'<span style="color:var(--sub)">'+fm(e.d)+' '+(e.sess>0?'第'+e.sess+'週':'月計')+'</span>'
+            +'<span><span style="font-weight:700;color:'+rc(e.hi/e.sh)+'">'+(e.hi/e.sh*100).toFixed(1)+'%</span>'
+              +'<span class="mono" style="color:var(--sub);margin-left:6px">'+e.hi+'/'+e.sh+'本</span></span>'
+            +'</div>';
+        }).join('');
+      }
+      rows+='<tr><td colspan="4" style="padding:0;background:var(--sf)">'
+        +'<div style="padding:4px 8px 8px">'+inner+'</div>'
+        +'</td></tr>';
+    }
   });
   return '<div class="sc"><div style="font-size:11px;color:var(--sub)">'+label+'の部全体</div>'
     +'<div style="font-size:18px;font-weight:800;color:'+rc(tsh?thi/tsh:0)+'">'+(tsh?((thi/tsh)*100).toFixed(1):'0.0')+'%'
@@ -1899,7 +2038,7 @@ function tHi(){
   var months=getMo();
   rev.forEach(function(e){
     var isPend=pDel===e.id;
-    var isEdit=editId===e.id&&canEditP();
+    var isEdit=editId===e.id&&canEditHistory();
     var inputDate=e.id>1e12?new Date(e.id).toLocaleDateString('ja-JP',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'}):'';
     if(isEdit){
       var ef=editForm;
@@ -1933,17 +2072,15 @@ function tHi(){
           +'<span class="mono" style="color:var(--sub);margin-left:6px">'+e.hi+'/'+e.sh+'本</span>'
           +(inputDate?'<span style="color:var(--faint);font-size:11px;margin-left:8px">入力 '+inputDate+'</span>':'')
         +'</div></div><div class="row" style="gap:2px">'
-        +(isPend
-          ?'<button class="btn bh" style="padding:5px 9px;font-size:12px" data-del-cancel="1">戻る</button>'
-           +'<button class="btn br" style="padding:5px 11px;font-size:12px" data-del-id="'+e.id+'">削除</button>'
-          :(canEditP()?'<button class="ib" data-edit-id="'+e.id+'" data-edit-d="'+e.d+'" data-edit-sess="'+e.sess+'"><img src="data:image/png;base64,'+EDIT_ICON+'" style="width:18px;height:18px;vertical-align:middle"></button>':''))
+        +(canEditHistory()?'<button class="ib" data-edit-id="'+e.id+'" data-edit-d="'+e.d+'" data-edit-sess="'+e.sess+'"><img src="data:image/png;base64,'+EDIT_ICON+'" style="width:18px;height:18px;vertical-align:middle"></button>':'')
         +'</div></div>';
     }
   });
   return out;
 }
-function doDel(id){S=S.filter(function(e){return e.id!==id;});pDel=null;editId=null;svS();fl('記録を削除しました');paint();}
+function doDel(id){if(!canEditHistory())return;S=S.filter(function(e){return e.id!==id;});pDel=null;editId=null;svS();fl('記録を削除しました');paint();}
 function doEditSave(id){
+  if(!canEditHistory())return;
   var mo=document.getElementById('ef-mo');
   var se=document.getElementById('ef-sess');
   if(!mo||!se)return;
@@ -1956,6 +2093,7 @@ function doEditSave(id){
 
 /* ======= SETTINGS ======= */
 function tSt(){
+  if(!adminMode)return '<div class="emp">この画面は管理者のみアクセスできます。</div>';
   var rows='';
   membersSorted().forEach(function(name){
     var mt=Meta[name]||{};
