@@ -108,7 +108,7 @@ tbody tr:nth-child(even){background:var(--sec)}
 .bun-tc-miss{background:var(--acc-bg);color:var(--bad)}
 .bun-sep-row td{height:5px;background:var(--sec);border-top:2px dashed var(--ln2);border-bottom:2px dashed var(--ln2);padding:0}
 .bun-name-row td,.bun-name-row th{position:sticky;bottom:0;z-index:3;border-top:2px solid var(--ink);background:var(--sec)}
-.bun-name-cell{text-align:center;vertical-align:top;width:50px;min-width:50px;word-break:keep-all}
+.bun-name-cell{text-align:center;vertical-align:bottom;width:50px;min-width:50px;word-break:keep-all}
 .bun-vname{-webkit-writing-mode:vertical-rl;-ms-writing-mode:tb-rl;writing-mode:vertical-rl;-webkit-text-orientation:mixed;text-orientation:mixed;font-size:13px;font-weight:700;padding:6px 2px;display:inline-block;letter-spacing:.05em}
 .bun-dragging{opacity:.3}
 .bun-drop-over{outline:2px solid var(--acc);outline-offset:-2px}
@@ -222,7 +222,26 @@ function dbListenDraft(){
               });
             }
             if(d.order)bunOrder=Array.isArray(d.order)?d.order:Object.values(d.order);
-            paint();
+            // スクロール位置を保ったままセルだけ更新
+            var updated=false;
+            Object.keys(bunData).forEach(function(name){
+              (bunData[name]||[]).forEach(function(s,idx){
+                var cell=document.querySelector('[data-bun-name="'+name+'"][data-bun-idx="'+idx+'"]');
+                if(cell){
+                  updated=true;
+                  cell.className='bun-tc'+(s===true?' bun-tc-hit':s===false?' bun-tc-miss':' bun-tc-empty');
+                  cell.textContent=s===true?'○':s===false?'✗':'';
+                }
+              });
+              var hi=(bunData[name]||[]).filter(function(v){return v===true;}).length;
+              var tc=document.querySelector('[data-bun-total="'+name+'"]');
+              if(tc){
+                tc.textContent=hi;
+                tc.style.color=hi>=14?'var(--good)':hi>=10?'var(--info)':hi>=7?'var(--warn)':'var(--ink)';
+              }
+            });
+            // セルが見つからない場合（ローテーション表示など）はfull repaint
+            if(!updated)paint();
           } else if(tab==='input'&&bunStep==='mo-sess'){
             paint(); // バナーを更新
           }
@@ -322,7 +341,7 @@ var pDel=null,pReset=false,attOpen=false,indivMb='',tableView='rank',indivMoView
 var rankExpandName='';
 var bunD='',bunSess=0,bunData={},bunOrder=null,_bunDrag=null;
 var bunStep='mo-sess',bunTate=1,bunPerTate=4,bunTateList=[4];
-var bunViewMode='table',bunRoundPos=0;
+var bunViewMode='table',bunRoundPos=0,bunSaveConfirm=false;
 
 var SEED_NUMS={'赤嶺':1,'小西':2,'諏訪園':3,'永田':4,'苗代':5,'廣中':6,'藤田圭':7,'丸崎':8,'辻':9,'西野':10,'藤田真':11,'鈴木':12,'服部':13,'濱野':14,'藤田悠':15,'柳澤':16,'油谷':17,'久田':18,'平井':19,'藤井':20,'藤本':21,'松野':22,'松本':23,'岡田':24,'佐野':25,'美藤':26,'川畑':27,'近藤':28,'徳久':29,'大橋':30,'大川':31};
 
@@ -538,7 +557,7 @@ function presentMembers(){
 function sw(t){
   if(t==='settings'&&!adminMode)return;
   if(!adminMode&&!shonaiMode&&t!=='input'&&t!=='table'&&t!=='penalty'&&t!=='history')return;
-  tab=t;pDel=null;pReset=false;editId=null;pinPendingType=null;pinPendingVal='';wipeStep=0;rankExpandName='';if(t!=='input'){bunStep='mo-sess';}if(t!=='table')tableView='rank';if(t!=='penalty'){penSubTab='penalty';jobView='list';}paint();
+  tab=t;pDel=null;pReset=false;editId=null;pinPendingType=null;pinPendingVal='';wipeStep=0;rankExpandName='';bunSaveConfirm=false;if(t!=='input'){bunStep='mo-sess';}if(t!=='table')tableView='rank';if(t!=='penalty'){penSubTab='penalty';jobView='list';}paint();
 }
 
 /* ------ paintTabs: data-tab + addEventListener ------ */
@@ -606,7 +625,11 @@ function bindEvents(){
   q('btn-bun-view-round',function(el){el.addEventListener('click',function(){bunViewMode='round';bunRoundPos=0;paint();});});
   q('btn-bun-round-prev',function(el){el.addEventListener('click',function(){if(bunRoundPos>0){bunRoundPos--;paint();}});});
   q('btn-bun-round-next',function(el){el.addEventListener('click',function(){bunRoundPos++;paint();});});
-  q('btn-bun-save',function(el){el.addEventListener('click',doSaveBun);});
+  q('btn-bun-save',function(el){el.addEventListener('click',function(){
+    if(!bunSaveConfirm){bunSaveConfirm=true;paint();}
+    else{doSaveBun();}
+  });});
+  q('btn-bun-save-cancel',function(el){el.addEventListener('click',function(){bunSaveConfirm=false;paint();});});
   q('btn-draft-resume',function(el){el.addEventListener('click',function(){
     var dr=bunDraftRemote;
     if(!dr)return;
@@ -625,9 +648,6 @@ function bindEvents(){
       });
     }
     bunStep='input';bunViewMode='table';bunRoundPos=0;_draftBannerDismissed=true;paint();
-  });});
-  q('btn-draft-dismiss',function(el){el.addEventListener('click',function(){
-    _draftBannerDismissed=true;paint();
   });});
   document.querySelectorAll('[data-bun-idx]').forEach(function(el){
     el.addEventListener('click',function(){
@@ -1086,8 +1106,7 @@ function tBun(){
         +'<div style="font-size:12px;font-weight:700;color:var(--warn,#b7800a);margin-bottom:6px">📋 進行中の分附があります</div>'
         +'<div style="font-size:11px;color:var(--sub);margin-bottom:8px">'+(dr.d?fm(dr.d):'')+(dr.sess?' 第'+dr.sess+'週':'')+(drTime?' — 更新 '+drTime:'')+'</div>'
         +'<div class="row" style="gap:8px">'
-          +'<button id="btn-draft-dismiss" class="btn bh" style="flex:1;padding:8px;font-size:12px">無視して新規作成</button>'
-          +'<button id="btn-draft-resume" class="btn bg" style="flex:1;padding:8px;font-size:12px;margin-top:0">続きから入力 →</button>'
+          +'<button id="btn-draft-resume" class="btn bg" style="width:100%;padding:8px;font-size:12px;margin-top:0">続きから入力 →</button>'
         +'</div></div>';
     }
     return '<div class="card mb10">'
@@ -1186,8 +1205,8 @@ function tBun(){
     var nameRow='<tr class="bun-name-row">'
       +members.map(function(n){
         return '<td class="bun-name-cell" data-bun-member="'+esc(n)+'">'
-          +'<span class="bun-dh" style="touch-action:none;user-select:none;cursor:grab;display:block;font-size:14px;color:var(--faint);text-align:center;padding:3px 0">⠿</span>'
           +'<span class="bun-vname">'+n+'</span>'
+          +'<span class="bun-dh" style="touch-action:none;user-select:none;cursor:grab;display:block;font-size:14px;color:var(--faint);text-align:center;padding:3px 0">⠿</span>'
           +'</td>';
       }).join('')
       +'<th class="bun-rn-r"></th></tr>';
@@ -1294,7 +1313,13 @@ function tBun(){
     +modeBar
     +inputArea
     +'<div class="row" style="gap:8px;margin-top:12px">'
-      +'<button id="btn-bun-save" class="btn prim" style="margin-top:0;width:100%;padding:12px">記録する</button>'
+      +(bunSaveConfirm
+        ?'<div style="padding:10px 12px;background:#fdf1e8;border-radius:8px;margin-bottom:8px;font-size:13px;font-weight:700;color:var(--warn,#b9770e)">全員20射引き終わりましたか？</div>'
+          +'<div class="row" style="gap:8px">'
+            +'<button id="btn-bun-save-cancel" class="btn bh" style="flex:1;padding:10px">戻る</button>'
+            +'<button id="btn-bun-save" class="btn prim" style="flex:2;margin-top:0;padding:10px">はい、記録する</button>'
+          +'</div>'
+        :'<button id="btn-bun-save" class="btn prim" style="margin-top:0;width:100%;padding:12px">記録する</button>')
     +'</div></div>';
 }
 function doSaveBun(){
@@ -1308,7 +1333,7 @@ function doSaveBun(){
   if(!saved)return fl('記録がありません',true);
   svS();fl(saved+'名分の分附を記録しました（'+fm(bunD)+' 第'+bunSess+'週）');
   dbDeleteDraft();
-  bunData={};bunD='';bunSess=0;bunStep='mo-sess';bunOrder=null;bunTate=1;bunTateList=[4];bunViewMode='table';bunRoundPos=0;_draftBannerDismissed=false;bunDraftRemote=null;paint();
+  bunData={};bunD='';bunSess=0;bunStep='mo-sess';bunOrder=null;bunTate=1;bunTateList=[4];bunViewMode='table';bunRoundPos=0;bunSaveConfirm=false;_draftBannerDismissed=false;bunDraftRemote=null;paint();
 }
 function resetBun(){dbDeleteDraft();bunData={};bunD='';bunSess=0;bunStep='mo-sess';bunOrder=null;bunTate=1;bunTateList=[4];bunViewMode='table';bunRoundPos=0;_draftBannerDismissed=false;bunDraftRemote=null;paint();}
 
