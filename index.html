@@ -153,13 +153,13 @@ function dbPush(){
   _lastPush=Date.now();
   _dot('var(--warn)','同期中...');
   fetch(DB+'.json',{method:'PUT',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({S:S,M:M,Meta:Meta,A:A,P:P,Jobs:Jobs,t:_lastPush,pin:ADMIN_PIN,shonaiPin:SHONAI_PIN})})
+    body:JSON.stringify({S:S,M:M,Meta:Meta,A:A,P:P,Jobs:Jobs,SP:SP,Pins:Pins,t:_lastPush,pin:ADMIN_PIN,shonaiPin:SHONAI_PIN})})
     .then(function(r){_dot(r.ok?'var(--good)':'var(--bad)',r.ok?'同期済み':'同期エラー');})
     .catch(function(){_dot('var(--bad)','接続できません');});
 }
 function scheduleDbPush(){if(_loading)return;if(_dbTimer)clearTimeout(_dbTimer);_dbTimer=setTimeout(dbPush,600);}
 function _buildDraftPayload(){
-  return {d:bunD,sess:bunSess,tate:bunTate,tateList:bunTateList,order:bunOrder,data:bunData,updatedAt:Date.now()};
+  return {d:bunD,sess:bunSess,date:bunDate,tate:bunTate,tateList:bunTateList,order:bunOrder,data:bunData,updatedAt:Date.now()};
 }
 function dbPushDraft(){
   if(_loading)return;
@@ -259,6 +259,8 @@ function _applyRemote(d){
   if(d.shonaiPin)SHONAI_PIN=d.shonaiPin;
   if(d.P)P=d.P;
   if(d.Jobs)Jobs=d.Jobs;
+  if(d.SP)SP=Array.isArray(d.SP)?d.SP:Object.values(d.SP);
+  if(d.Pins)Pins=d.Pins;
   try{
     localStorage.setItem('kyudo_s2',JSON.stringify(S));
     localStorage.setItem('kyudo_m2',JSON.stringify(M));
@@ -266,6 +268,8 @@ function _applyRemote(d){
     localStorage.setItem('kyudo_att_v1',JSON.stringify(A));
     localStorage.setItem(KP,JSON.stringify(P));
     localStorage.setItem(KJ,JSON.stringify(Jobs));
+    localStorage.setItem(KSP,JSON.stringify(SP));
+    localStorage.setItem(KPINS,JSON.stringify(Pins));
   }catch(e){}
 }
 function dbPull(cb){
@@ -330,7 +334,7 @@ function bkupLabel(){
   if(d<7)return{text:d+'日前にバックアップ済み',color:'var(--warn)',warn:false};
   return{text:d+'日前（要バックアップ）',color:'var(--bad)',warn:true};
 }
-var CURM=new Date().toISOString().slice(0,7);
+var CURM=jstNow().toISOString().slice(0,7);
 var KS='kyudo_s2',KM='kyudo_m2',KMeta='kyudo_meta_v1',KA='kyudo_att_v1';
 var S=[],M=[],Meta={},A={};
 var tab='input',mo='all',tMode='monthly',sesKey='',histMb='all';
@@ -340,7 +344,15 @@ var editId=null,editForm={};
 var pDel=null,pReset=false,attOpen=false,indivMb='',tableView='rank',indivMoView='table',indivWkView='table';
 var rankExpandName='';
 var mergeMode=false,mergeSel=[],mergeConfirm=false,mergeForm={d:'',sess:0,sh:0,hi:0,mb:''};
-var bunD='',bunSess=0,bunData={},bunOrder=null,_bunDrag=null;
+/* ---- 自主練 / マイページ ---- */
+var SP=[],KSP='kyudo_sp_v1';
+var Pins={},KPINS='kyudo_pins_v1';
+var myMb='',KME='kyudo_me_v1';
+var selfSub='input',selfForm={date:'',sh:'20',hi:''};
+var selfHistView='self',selfRankMode='rate';
+var selfLoginName='',selfSetMode=false;
+function pinHash(s){var h=5381;s=''+s;for(var i=0;i<s.length;i++){h=((h<<5)+h+s.charCodeAt(i))|0;}return 'h'+(h>>>0);}
+var bunD='',bunSess=0,bunDate='',bunData={},bunOrder=null,_bunDrag=null;
 var bunStep='mo-sess',bunTate=1,bunPerTate=4,bunTateList=[4];
 var bunViewMode='table',bunRoundPos=0,bunSaveConfirm=false;
 
@@ -397,6 +409,9 @@ function load(){
   var at=localStorage.getItem(KA);A=at?JSON.parse(at):{};
   var pp=localStorage.getItem(KP);P=pp?JSON.parse(pp):[];
   var jj=localStorage.getItem(KJ);Jobs=jj?JSON.parse(jj):[];
+  try{var sp=localStorage.getItem(KSP);SP=sp?JSON.parse(sp):[];}catch(e){SP=[];}
+  try{var pn=localStorage.getItem(KPINS);Pins=pn?JSON.parse(pn):{};}catch(e){Pins={};}
+  try{myMb=localStorage.getItem(KME)||'';}catch(e){myMb='';}
   initNums();
   // ローカルが空だった場合、Firebaseから正しいデータが来るまではlocalStorageに書かない
   // （ここでsvM()/svS()を呼ぶと、オフライン時に空のシードがそのまま保存され続けてしまう）
@@ -424,6 +439,9 @@ function svM(){try{localStorage.setItem(KM,JSON.stringify(M));localStorage.setIt
 function svA(){try{localStorage.setItem(KA,JSON.stringify(A));}catch(e){}scheduleDbPush();}
 function svP(){try{localStorage.setItem(KP,JSON.stringify(P));}catch(e){}scheduleDbPush();}
 function svJ(){try{localStorage.setItem(KJ,JSON.stringify(Jobs));}catch(e){}scheduleDbPush();}
+function svSP(){try{localStorage.setItem(KSP,JSON.stringify(SP));}catch(e){}scheduleDbPush();}
+function svPins(){try{localStorage.setItem(KPINS,JSON.stringify(Pins));}catch(e){}scheduleDbPush();}
+function svMe(){try{myMb?localStorage.setItem(KME,myMb):localStorage.removeItem(KME);}catch(e){}}
 function fl(msg,err){
   var el=document.getElementById('fl');
   el.textContent=msg;el.style.display='block';
@@ -468,7 +486,7 @@ function moSelectVal(id){
 }
 function getSessKeys(){
   var seen={};
-  S.filter(function(e){return e.sess>0;}).forEach(function(e){seen[e.d+'|'+e.sess]=1;});
+  S.forEach(function(e){var w=recWeek(e);if(w>0)seen[e.d+'|'+w]=1;});
   return Object.keys(seen).sort(function(a,b){return b.localeCompare(a);});
 }
 function nextSess(d){
@@ -536,7 +554,7 @@ function getStats(d){
 function getSessStats(key){
   var p=key.split('|');var d=p[0];var si=parseInt(p[1],10);
   var active=activeMbs();var mp={};
-  S.filter(function(e){return e.d===d&&e.sess===si&&(!active||active.has(e.mb));}).forEach(function(e){
+  S.filter(function(e){return e.d===d&&recWeek(e)===si&&(!active||active.has(e.mb));}).forEach(function(e){
     if(!mp[e.mb])mp[e.mb]={name:e.mb,sh:0,hi:0};
     mp[e.mb].sh+=e.sh;mp[e.mb].hi+=e.hi;
   });
@@ -557,7 +575,7 @@ function presentMembers(){
 }
 function sw(t){
   if(t==='settings'&&!adminMode)return;
-  if(!adminMode&&!shonaiMode&&t!=='input'&&t!=='table'&&t!=='penalty'&&t!=='history')return;
+  if(!adminMode&&!shonaiMode&&t!=='input'&&t!=='table'&&t!=='penalty'&&t!=='history'&&t!=='self')return;
   tab=t;pDel=null;pReset=false;editId=null;pinPendingType=null;pinPendingVal='';wipeStep=0;rankExpandName='';bunSaveConfirm=false;if(t!=='history'){mergeMode=false;mergeSel=[];mergeConfirm=false;}if(t!=='input'){bunStep='mo-sess';}if(t!=='table')tableView='rank';if(t!=='penalty'){penSubTab='penalty';jobView='list';}paint();
 }
 
@@ -565,8 +583,8 @@ function sw(t){
 function paintTabs(){
   var warn=bkupLabel().warn;
   var T=adminMode
-    ?[['input','分附'],['table','成績表'],['penalty','罰則'],['history','履歴'],['settings','設定'+(warn?'<span class="bkup-badge">!</span>':'')]]
-    :[['input','分附'],['table','成績表'],['penalty','罰則'],['history','履歴']];
+    ?[['input','分附'],['table','成績表'],['penalty','罰則'],['history','履歴'],['self','自主練'],['settings','設定'+(warn?'<span class="bkup-badge">!</span>':'')]]
+    :[['input','分附'],['table','成績表'],['penalty','罰則'],['history','履歴'],['self','自主練']];
   var el=document.getElementById('tabs');
   el.innerHTML=T.map(function(kl){
     return '<button class="t'+(tab===kl[0]?' on':'')+'" data-tab="'+kl[0]+'">'+kl[1]+'</button>';
@@ -585,7 +603,7 @@ function paint(){
     banner='<div class="bkup-banner">⚠️ '+days+'日間バックアップされていません。設定からエクスポートしてください。</div>';
   }
   document.getElementById('con').innerHTML=banner
-    +(tab==='input'?tBun():tab==='table'?tTb():tab==='penalty'?tPenalty():tab==='history'?tHi():tSt());
+    +(tab==='input'?tBun():tab==='table'?tTb():tab==='penalty'?tPenalty():tab==='history'?tHi():tab==='self'?tSelf():tSt());
   bindEvents();
 }
 
@@ -593,11 +611,15 @@ function paint(){
 function bindEvents(){
   /* tabs already bound in paintTabs */
   /* 入力/分附 tab */
-  /* bun-mo: year/month selects (iOS対応でtype=monthを2つのselectに分割) */
-  q('bun-mo-y',function(el){el.addEventListener('change',function(){var v=moSelectVal('bun-mo');if(v){bunD=v;paint();}});});
-  q('bun-mo-m',function(el){el.addEventListener('change',function(){var v=moSelectVal('bun-mo');if(v){bunD=v;paint();}});});
-  q('bun-sess',function(el){el.addEventListener('change',function(){bunSess=+this.value||0;paint();});});
-  q('btn-bun-next-att',function(el){el.addEventListener('click',function(){if(bunD&&bunSess){bunStep='att';paint();}});});
+  /* bun-date: 日付を選択（週は日付から自動判定） */
+  q('bun-date',function(el){el.addEventListener('change',function(){bunDate=this.value;paint();});});
+  q('btn-bun-next-att',function(el){el.addEventListener('click',function(){
+    if(!bunDate)return;
+    var wk=calWeekOfMonth(bunDate);
+    if(!wk)return;
+    bunD=bunDate.slice(0,7);bunSess=wk;
+    bunStep='att';paint();
+  });});
   q('btn-bun-back-mo',function(el){el.addEventListener('click',function(){bunStep='mo-sess';paint();});});
   q('btn-bun-next-cfg',function(el){el.addEventListener('click',function(){bunStep='config';bunOrder=null;paint();});});
   q('btn-bun-back-att',function(el){el.addEventListener('click',function(){bunStep='att';paint();});});
@@ -636,6 +658,7 @@ function bindEvents(){
     if(!dr)return;
     bunD=dr.d||'';
     bunSess=dr.sess||0;
+    bunDate=dr.date||(dr.d?dr.d+'-01':'');
     bunTate=dr.tate||1;
     // Firebaseは配列をオブジェクトで返す場合があるので変換
     var tl=dr.tateList||[4];
@@ -706,7 +729,7 @@ function bindEvents(){
       var id=parseInt(this.getAttribute('data-edit-id'),10);
       var rec=S.find(function(x){return x.id===id;})||{};
       editId=id;
-      editForm={d:rec.d,sess:rec.sess,sh:rec.sh,hi:rec.hi};
+      editForm=rec.date?{date:rec.date,sh:rec.sh,hi:rec.hi}:{d:rec.d,sess:rec.sess,sh:rec.sh,hi:rec.hi};
       pDel=null;paint();
     });
   });
@@ -735,6 +758,32 @@ function bindEvents(){
   document.querySelectorAll('[data-merge-do]').forEach(function(el){
     el.addEventListener('click',function(){if(!canEditHistory())return;doMerge();});
   });
+  /* 自主練 / マイページ */
+  q('self-name',function(el){el.addEventListener('change',function(){selfLoginName=this.value;paint();});});
+  q('btn-self-login',function(el){el.addEventListener('click',doSelfLogin);});
+  q('self-pin',function(el){el.addEventListener('keydown',function(ev){if(ev.key==='Enter')doSelfLogin();});});
+  document.querySelectorAll('[data-self-reset]').forEach(function(el){
+    el.addEventListener('click',function(){selfResetPin(this.getAttribute('data-self-reset'));});
+  });
+  q('btn-self-logout',function(el){el.addEventListener('click',selfLogout);});
+  document.querySelectorAll('[data-self-sub]').forEach(function(el){
+    el.addEventListener('click',function(){selfSub=this.getAttribute('data-self-sub');paint();});
+  });
+  document.querySelectorAll('[data-self-view]').forEach(function(el){
+    el.addEventListener('click',function(){selfHistView=this.getAttribute('data-self-view');paint();});
+  });
+  document.querySelectorAll('[data-self-rank]').forEach(function(el){
+    el.addEventListener('click',function(){selfRankMode=this.getAttribute('data-self-rank');paint();});
+  });
+  q('btn-self-save',function(el){el.addEventListener('click',doSaveSelf);});
+  document.querySelectorAll('[data-self-del]').forEach(function(el){
+    el.addEventListener('click',function(){delSelf(parseInt(this.getAttribute('data-self-del'),10));});
+  });
+  q('sf-date',function(el){el.addEventListener('change',function(){selfForm.date=this.value;});});
+  q('sf-sh',function(el){el.addEventListener('input',function(){selfForm.sh=this.value;selfLpUpdate();});});
+  q('sf-hi',function(el){el.addEventListener('input',function(){selfForm.hi=this.value;selfLpUpdate();});});
+  q('ef-date',function(el){el.addEventListener('input',function(){var w=document.getElementById('ef-wk');if(w)w.textContent=this.value?fm(this.value.slice(0,7))+' 第'+calWeekOfMonth(this.value)+'週として記録':'';});});
+  q('mf-date',function(el){el.addEventListener('input',function(){var w=document.getElementById('mf-wk');if(w)w.textContent=this.value?fm(this.value.slice(0,7))+' 第'+calWeekOfMonth(this.value)+'週として記録':'';});});
   /* 分附 tab events handled above */
   q('btn-export',function(el){el.addEventListener('click',doExport);});
   q('btn-pin-save',function(el){el.addEventListener('click',function(){
@@ -920,6 +969,13 @@ function lp(){
   if(sv>0&&!isNaN(hv)&&hv>=0&&hv<=sv){var r=hv/sv;b.style.display='flex';v.textContent=(r*100).toFixed(1)+'%';v.style.color=rc(r);}
   else b.style.display='none';
 }
+function selfLpUpdate(){
+  var shEl=document.getElementById('sf-sh'),hiEl=document.getElementById('sf-hi');
+  var sv=parseFloat(shEl&&shEl.value)||0,hv=parseFloat(hiEl&&hiEl.value);
+  var b=document.getElementById('sf-pre'),v=document.getElementById('sf-pv');if(!b)return;
+  if(sv>0&&!isNaN(hv)&&hv>=0&&hv<=sv){var r=hv/sv;b.style.display='flex';v.textContent=(r*100).toFixed(1)+'%';v.style.color=rc(r);}
+  else b.style.display='none';
+}
 function doSave(){
   var mb=form.mb,d=form.d,sess=form.sess,sv=parseFloat(form.sh)||0,hv=parseFloat(form.hi);
   if(!mb)return fl('氏名を選択してください',true);
@@ -998,15 +1054,15 @@ function getBunDefaultOrder(){
     var d=new Date(bunD+'-01');
     d.setMonth(d.getMonth()-1);
     prevD=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');
-    var ps=S.filter(function(e){return e.d===prevD&&e.sess>0;});
-    prevSess=ps.length?Math.max.apply(null,ps.map(function(e){return e.sess;})):0;
+    var ps=S.filter(function(e){return e.d===prevD;});
+    prevSess=ps.length?Math.max.apply(null,ps.map(function(e){return recWeek(e);}).concat([0])):0;
   }
   var base=membersSorted().slice();
   if(prevSess<1)return base; // 前週データなし→デフォルト順
   // 前週の的中率を計算
   var scores={};
   base.forEach(function(name){
-    var entries=S.filter(function(e){return e.d===prevD&&e.sess===prevSess&&e.mb===name;});
+    var entries=S.filter(function(e){return e.d===prevD&&recWeek(e)===prevSess&&e.mb===name;});
     if(entries.length){
       var sh=entries.reduce(function(a,e){return a+e.sh;},0);
       var hi=entries.reduce(function(a,e){return a+e.hi;},0);
@@ -1115,28 +1171,26 @@ function initBunDragDrop(){
 function tBun(){
   // STEP 1
   if(bunStep==='mo-sess'){
-    var moVal=bunD||'';
-    var sessOpts='<option value="0">-- 週を選択 --</option>'
-      +[1,2,3,4,5].map(function(n){return '<option value="'+n+'"'+(bunSess===n?' selected':'')+'>第'+n+'週</option>';}).join('');
-    var ready=!!(moVal&&bunSess);
+    if(!bunDate)bunDate=todayStr();
+    var wk=calWeekOfMonth(bunDate);
+    var ready=!!bunDate&&wk>0;
     var draftBanner='';
     if(bunDraftRemote&&!_draftBannerDismissed){
       var dr=bunDraftRemote;
       var drTime=dr.updatedAt?new Date(dr.updatedAt).toLocaleTimeString('ja-JP',{hour:'2-digit',minute:'2-digit'}):'';
       draftBanner='<div style="margin-bottom:10px;padding:10px 12px;background:#fef9e7;border:1px solid var(--warn,#e6a817);border-radius:10px">'
         +'<div style="font-size:12px;font-weight:700;color:var(--warn,#b7800a);margin-bottom:6px">📋 進行中の分附があります</div>'
-        +'<div style="font-size:11px;color:var(--sub);margin-bottom:8px">'+(dr.d?fm(dr.d):'')+(dr.sess?' 第'+dr.sess+'週':'')+(drTime?' — 更新 '+drTime:'')+'</div>'
+        +'<div style="font-size:11px;color:var(--sub);margin-bottom:8px">'+(dr.d?fm(dr.d):(dr.date?fm(dr.date.slice(0,7)):''))+(dr.date?' 第'+calWeekOfMonth(dr.date)+'週':dr.sess?' 第'+dr.sess+'週':'')+(drTime?' — 更新 '+drTime:'')+'</div>'
         +'<div class="row" style="gap:8px">'
           +'<button id="btn-draft-resume" class="btn bg" style="width:100%;padding:8px;font-size:12px;margin-top:0">続きから入力 →</button>'
         +'</div></div>';
     }
     return '<div class="card mb10">'
       +draftBanner
-      +'<p style="margin:0 0 10px;font-size:14px;font-weight:700">① 対象の月・週を選択</p>'
-      +'<label style="margin-top:0">対象の月</label>'
-      +moSelect('bun-mo',moVal)
-      +'<label>週</label>'
-      +'<select id="bun-sess" style="width:100%">'+sessOpts+'</select>'
+      +'<p style="margin:0 0 10px;font-size:14px;font-weight:700">① 日付を選択</p>'
+      +'<label style="margin-top:0">練習日</label>'
+      +'<input id="bun-date" type="date" value="'+bunDate+'">'
+      +'<div style="margin-top:8px;font-size:12px;color:var(--sub)">'+(ready?fm(bunDate.slice(0,7))+' <b style="color:var(--ink)">第'+wk+'週</b>として記録されます':'日付を選択してください')+'</div>'
       +'<button id="btn-bun-next-att" class="btn prim" style="width:100%;margin-top:12px;padding:12px'+(ready?'':';opacity:0.45')+'"'+(ready?'':' disabled')+'>次へ：出席者を選択 →</button>'
       +'</div>';
   }
@@ -1349,14 +1403,14 @@ function doSaveBun(){
     var shots=bunData[name]||[];
     var sh=shots.filter(function(s){return s!==null;}).length;
     var hi=shots.filter(function(s){return s===true;}).length;
-    if(sh>0){S.push({id:Date.now()+saved,mb:name,d:bunD,sess:parseInt(bunSess,10),sh:sh,hi:hi});saved++;}
+    if(sh>0){S.push({id:Date.now()+saved,mb:name,d:bunD,date:bunDate,sh:sh,hi:hi});saved++;}
   });
   if(!saved)return fl('記録がありません',true);
   svS();fl(saved+'名分の分附を記録しました（'+fm(bunD)+' 第'+bunSess+'週）');
   dbDeleteDraft();
-  bunData={};bunD='';bunSess=0;bunStep='mo-sess';bunOrder=null;bunTate=1;bunTateList=[4];bunViewMode='table';bunRoundPos=0;bunSaveConfirm=false;_draftBannerDismissed=false;bunDraftRemote=null;paint();
+  bunData={};bunD='';bunSess=0;bunDate='';bunStep='mo-sess';bunOrder=null;bunTate=1;bunTateList=[4];bunViewMode='table';bunRoundPos=0;bunSaveConfirm=false;_draftBannerDismissed=false;bunDraftRemote=null;paint();
 }
-function resetBun(){dbDeleteDraft();bunData={};bunD='';bunSess=0;bunStep='mo-sess';bunOrder=null;bunTate=1;bunTateList=[4];bunViewMode='table';bunRoundPos=0;_draftBannerDismissed=false;bunDraftRemote=null;paint();}
+function resetBun(){dbDeleteDraft();bunData={};bunD='';bunSess=0;bunDate='';bunStep='mo-sess';bunOrder=null;bunTate=1;bunTateList=[4];bunViewMode='table';bunRoundPos=0;bunSaveConfirm=false;_draftBannerDismissed=false;bunDraftRemote=null;paint();}
 
 
 /* ======= PENALTY ======= */
@@ -1410,7 +1464,7 @@ function tPenalty(){
     +'</div>';
   if(penSubTab==='jobs')return subNav+tJobs();
   if(penaltyView==='detail')return subNav+tPenaltyDetail();
-  if(!penForm.date)penForm.date=new Date().toISOString().slice(0,10);
+  if(!penForm.date)penForm.date=todayStr();
   var addForm='';
   if(canEditP()){
     var ptOpts=PTYPES.map(function(t){return '<option value="'+t.n+'"'+(penForm.ptype===t.n?' selected':'')+'>'+t.lbl+'（'+t.pts+'点）</option>';}).join('');
@@ -1454,7 +1508,14 @@ function tPenalty(){
 }
 
 /* ======= JOBS ======= */
-function todayStr(){return new Date().toISOString().slice(0,10);}
+function jstNow(){return new Date(Date.now()+9*3600*1000);}
+function todayStr(){return jstNow().toISOString().slice(0,10);}
+function curMonth(){return jstNow().toISOString().slice(0,7);}
+/* 暦ベースの「その月の第何週」。1日を含む週を第1週とし、日曜始まりで数える */
+function calWeekOfMonth(dateStr){var p=(dateStr||'').split('-');if(p.length<3)return 0;var y=+p[0],m=+p[1],d=+p[2];if(!y||!m||!d)return 0;var fd=new Date(y,m-1,1).getDay();return Math.ceil((d+fd)/7);}
+/* レコードの週（新:日付から算出 / 旧:sess）と月 */
+function recWeek(e){return e&&e.date?calWeekOfMonth(e.date):(e&&e.sess?e.sess:0);}
+function recWeekLabel(e){var w=recWeek(e);return w>0?'第'+w+'週':'月計';}
 function tJobs(){
   if(jobView==='detail')return tJobDetail();
   if(jobView==='create')return tJobCreate();
@@ -1712,7 +1773,7 @@ function mSession(){
     +rankCard(st,thi,tsh,(sesKey?fsk(sesKey):'')+filterLabel(),function(name){
       if(!sesKey)return [];
       var p=sesKey.split('|');var d=p[0];var si=parseInt(p[1],10);
-      return S.filter(function(e){return e.mb===name&&e.d===d&&e.sess===si;})
+      return S.filter(function(e){return e.mb===name&&e.d===d&&recWeek(e)===si;})
         .slice().sort(function(a,b){return b.id-a.id;});
     });
 }
@@ -1736,7 +1797,7 @@ function rankCard(st,thi,tsh,label,getRecords){
       }else{
         inner=recs.map(function(e){
           return '<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 4px;border-bottom:1px solid var(--ln2);font-size:12px">'
-            +'<span style="color:var(--sub)">'+fm(e.d)+' '+(e.sess>0?'第'+e.sess+'週':'月計')+'</span>'
+            +'<span style="color:var(--sub)">'+fm(e.d)+' '+recWeekLabel(e)+'</span>'
             +'<span><span style="font-weight:700;color:'+rc(e.hi/e.sh)+'">'+(e.hi/e.sh*100).toFixed(1)+'%</span>'
               +'<span class="mono" style="color:var(--sub);margin-left:6px">'+e.hi+'/'+e.sh+'本</span></span>'
             +'</div>';
@@ -1890,10 +1951,10 @@ function indivMonthly(name){
 }
 function indivWeekly(name){
   var seen={};
-  S.filter(function(e){return e.mb===name&&e.sess>0;}).forEach(function(e){seen[e.d+'|'+e.sess]=1;});
+  S.filter(function(e){return e.mb===name&&recWeek(e)>0;}).forEach(function(e){seen[e.d+'|'+recWeek(e)]=1;});
   return Object.keys(seen).sort(function(a,b){return b.localeCompare(a);}).map(function(k){
     var p=k.split('|');var d=p[0];var si=parseInt(p[1],10);
-    var entries=S.filter(function(e){return e.d===d&&e.sess===si&&e.mb===name;});
+    var entries=S.filter(function(e){return e.d===d&&recWeek(e)===si&&e.mb===name;});
     var sh=entries.reduce(function(a,e){return a+e.sh;},0);
     var hi=entries.reduce(function(a,e){return a+e.hi;},0);
     return{key:k,month:d,sess:si,sh:sh,hi:hi,rate:sh?hi/sh:0};
@@ -2136,16 +2197,13 @@ function tHi(){
     if(mergeConfirm&&mergeSel.length>=2){
       // 統合の確認・調整パネル
       var mf=mergeForm;
-      var moSel2='<select id="mf-mo" style="flex:1;font-size:13px;padding:6px 8px;border:1px solid var(--ln2);border-radius:8px">';
-      months.forEach(function(m){moSel2+='<option value="'+m+'"'+(mf.d===m?' selected':'')+'>'+fm(m)+'</option>';});
-      moSel2+='</select>';
-      var seSel2='<select id="mf-sess" style="flex:1;font-size:13px;padding:6px 8px;border:1px solid var(--ln2);border-radius:8px"><option value="0"'+(mf.sess===0?' selected':'')+'>月計</option>';
-      for(var s2=1;s2<=8;s2++)seSel2+='<option value="'+s2+'"'+(mf.sess===s2?' selected':'')+'>第'+s2+'週</option>';
-      seSel2+='</select>';
+      var mfWk=mf.date?calWeekOfMonth(mf.date):0;
       out+='<div class="card mb10" style="padding:12px 14px;border-color:var(--acc-ln);background:var(--acc-bg)">'
         +'<div style="font-size:12px;font-weight:700;margin-bottom:4px">'+mf.mb+' の '+mergeSel.length+' 件を1件に統合</div>'
         +'<div style="font-size:11.5px;color:var(--sub);margin-bottom:8px">選択した記録は削除され、下の内容で1件にまとめられます。的中数・射数は合計で入っています（調整可）。</div>'
-        +'<div class="row" style="gap:8px;margin-bottom:8px">'+moSel2+seSel2+'</div>'
+        +'<label style="margin:0 0 3px">練習日</label>'
+        +'<input id="mf-date" type="date" value="'+(mf.date||'')+'">'
+        +'<div style="font-size:11px;color:var(--sub);margin:4px 0 8px" id="mf-wk">'+(mf.date?fm(mf.date.slice(0,7))+' 第'+mfWk+'週として記録':'')+'</div>'
         +'<div class="row" style="gap:8px;margin-bottom:8px">'
           +'<div style="flex:1"><label style="margin:0 0 3px">的中数</label><input id="mf-hi" type="number" inputmode="numeric" min="0" value="'+mf.hi+'"></div>'
           +'<div style="flex:1"><label style="margin:0 0 3px">射数</label><input id="mf-sh" type="number" inputmode="numeric" min="1" value="'+mf.sh+'"></div>'
@@ -2174,7 +2232,7 @@ function tHi(){
       out+='<div class="li" style="'+(disabled?'opacity:.35;':'')+(checked?'background:var(--acc-bg);':'')+'"'+(disabled?'':' data-merge-pick="'+e.id+'"')+'>'
         +'<div style="width:24px;flex:none;font-size:17px;text-align:center">'+(checked?'☑':'☐')+'</div>'
         +'<div style="flex:1;min-width:0"><span class="nm">'+e.mb+'</span>'+yb(e.mb)
-        +'<span class="me">'+fm(e.d)+' '+(e.sess>0?'第'+e.sess+'週':'月計')+'</span>'
+        +'<span class="me">'+fm(e.d)+' '+recWeekLabel(e)+'</span>'
         +'<div style="font-size:12px;margin-top:1px">'
           +'<span style="font-weight:700;color:'+rc(e.hi/e.sh)+'">'+(e.hi/e.sh*100).toFixed(1)+'%</span>'
           +'<span class="mono" style="color:var(--sub);margin-left:6px">'+e.hi+'/'+e.sh+'本</span>'
@@ -2190,17 +2248,26 @@ function tHi(){
     var inputDate=e.id>1e12?new Date(e.id).toLocaleDateString('ja-JP',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'}):'';
     if(isEdit){
       var ef=editForm;
-      var moSel='<select id="ef-mo" style="flex:1;font-size:13px;padding:6px 8px;border:1px solid var(--ln2);border-radius:8px">';
-      months.forEach(function(m){moSel+='<option value="'+m+'"'+(ef.d===m?' selected':'')+'>'+fm(m)+'</option>';});
-      moSel+='</select>';
-      var seSel='<select id="ef-sess" style="flex:1;font-size:13px;padding:6px 8px;border:1px solid var(--ln2);border-radius:8px">'
-        +'<option value="0"'+(ef.sess===0?' selected':'')+'>月計</option>';
-      for(var si=1;si<=8;si++)seSel+='<option value="'+si+'"'+(ef.sess===si?' selected':'')+'>第'+si+'週</option>';
-      seSel+='</select>';
+      var isDateRec=!!e.date;
+      var periodUI;
+      if(isDateRec){
+        periodUI='<label style="margin:0 0 3px">練習日</label>'
+          +'<input id="ef-date" type="date" value="'+(ef.date||'')+'">'
+          +'<div style="font-size:11px;color:var(--sub);margin:4px 0 0" id="ef-wk">'+(ef.date?fm(ef.date.slice(0,7))+' 第'+calWeekOfMonth(ef.date)+'週として記録':'')+'</div>';
+      }else{
+        var moSel='<select id="ef-mo" style="flex:1;font-size:13px;padding:6px 8px;border:1px solid var(--ln2);border-radius:8px">';
+        months.forEach(function(m){moSel+='<option value="'+m+'"'+(ef.d===m?' selected':'')+'>'+fm(m)+'</option>';});
+        moSel+='</select>';
+        var seSel='<select id="ef-sess" style="flex:1;font-size:13px;padding:6px 8px;border:1px solid var(--ln2);border-radius:8px">'
+          +'<option value="0"'+(ef.sess===0?' selected':'')+'>月計</option>';
+        for(var si=1;si<=6;si++)seSel+='<option value="'+si+'"'+(ef.sess===si?' selected':'')+'>第'+si+'週</option>';
+        seSel+='</select>';
+        periodUI='<div class="row" style="gap:8px">'+moSel+seSel+'</div>';
+      }
       out+='<div class="card mb10" style="padding:12px 14px">'
         +'<div style="font-size:12px;font-weight:700;color:var(--sub);margin-bottom:6px">'+e.mb+' の記録を編集</div>'
-        +'<div class="row" style="gap:8px;margin-bottom:8px">'+moSel+seSel+'</div>'
-        +'<div class="row" style="gap:8px;margin-bottom:8px">'
+        +periodUI
+        +'<div class="row" style="gap:8px;margin:8px 0 8px">'
           +'<div style="flex:1"><label style="margin:0 0 3px">的中数</label><input id="ef-hi" type="number" inputmode="numeric" min="0" value="'+ef.hi+'"></div>'
           +'<div style="flex:1"><label style="margin:0 0 3px">射数</label><input id="ef-sh" type="number" inputmode="numeric" min="1" value="'+ef.sh+'"></div>'
         +'</div>'
@@ -2218,7 +2285,7 @@ function tHi(){
         +'</div>';
     } else {
       out+='<div class="li"><div style="flex:1;min-width:0"><span class="nm">'+e.mb+'</span>'+yb(e.mb)
-        +'<span class="me">'+fm(e.d)+' '+(e.sess>0?'第'+e.sess+'週':'月計')+'</span>'
+        +'<span class="me">'+fm(e.d)+' '+recWeekLabel(e)+(e.date?'（'+selfDateS(e.date)+'）':'')+'</span>'
         +'<div style="font-size:12px;margin-top:1px">'
           +'<span style="font-weight:700;color:'+rc(e.hi/e.sh)+'">'+(e.hi/e.sh*100).toFixed(1)+'%</span>'
           +'<span class="mono" style="color:var(--sub);margin-left:6px">'+e.hi+'/'+e.sh+'本</span>'
@@ -2233,19 +2300,25 @@ function tHi(){
 function doDel(id){if(!canEditHistory())return;S=S.filter(function(e){return e.id!==id;});pDel=null;editId=null;svS();fl('記録を削除しました');paint();}
 function doEditSave(id){
   if(!canEditHistory())return;
-  var mo=document.getElementById('ef-mo');
-  var se=document.getElementById('ef-sess');
   var hiEl=document.getElementById('ef-hi');
   var shEl=document.getElementById('ef-sh');
-  if(!mo||!se||!hiEl||!shEl)return;
-  var nd=mo.value,ns=parseInt(se.value,10);
+  if(!hiEl||!shEl)return;
   var nhi=parseInt(hiEl.value,10),nsh=parseInt(shEl.value,10);
   if(isNaN(nsh)||nsh<1){fl('射数は1以上で入力してください',true);return;}
   if(isNaN(nhi)||nhi<0){fl('的中数を正しく入力してください',true);return;}
   if(nhi>nsh){fl('的中数は射数以下にしてください',true);return;}
   var e=S.find(function(x){return x.id===id;});
   if(!e){editId=null;paint();return;}
-  e.d=nd;e.sess=ns;e.sh=nsh;e.hi=nhi;
+  var dEl=document.getElementById('ef-date');
+  if(dEl){
+    if(!dEl.value){fl('日付を入力してください',true);return;}
+    e.date=dEl.value;e.d=dEl.value.slice(0,7);delete e.sess;
+  }else{
+    var mo=document.getElementById('ef-mo'),se=document.getElementById('ef-sess');
+    if(!mo||!se)return;
+    e.d=mo.value;e.sess=parseInt(se.value,10);delete e.date;
+  }
+  e.sh=nsh;e.hi=nhi;
   editId=null;svS();fl('記録を更新しました');paint();
 }
 /* ---- 記録の統合 ---- */
@@ -2269,28 +2342,248 @@ function mergeNext(){
   var sels=S.filter(function(x){return mergeSel.indexOf(x.id)>=0;}).sort(function(a,b){return a.id-b.id;});
   var base=sels[0],sumSh=0,sumHi=0;
   sels.forEach(function(x){sumSh+=x.sh;sumHi+=x.hi;});
-  mergeForm={d:base.d,sess:base.sess,sh:sumSh,hi:sumHi,mb:base.mb};
+  mergeForm={date:base.date||(base.d?base.d+'-01':todayStr()),sh:sumSh,hi:sumHi,mb:base.mb};
   mergeConfirm=true;paint();
 }
 function doMerge(){
   if(!canEditHistory()||mergeSel.length<2)return;
-  var mo=document.getElementById('mf-mo');
-  var se=document.getElementById('mf-sess');
+  var dEl=document.getElementById('mf-date');
   var hiEl=document.getElementById('mf-hi');
   var shEl=document.getElementById('mf-sh');
-  if(!mo||!se||!hiEl||!shEl)return;
-  var nd=mo.value,ns=parseInt(se.value,10);
+  if(!dEl||!hiEl||!shEl)return;
+  var nd=dEl.value;
   var nhi=parseInt(hiEl.value,10),nsh=parseInt(shEl.value,10);
+  if(!nd){fl('日付を入力してください',true);return;}
   if(isNaN(nsh)||nsh<1){fl('射数は1以上で入力してください',true);return;}
   if(isNaN(nhi)||nhi<0){fl('的中数を正しく入力してください',true);return;}
   if(nhi>nsh){fl('的中数は射数以下にしてください',true);return;}
   var sels=S.filter(function(x){return mergeSel.indexOf(x.id)>=0;}).sort(function(a,b){return a.id-b.id;});
   var base=sels[0],n=sels.length;
-  base.d=nd;base.sess=ns;base.sh=nsh;base.hi=nhi;
+  base.date=nd;base.d=nd.slice(0,7);delete base.sess;base.sh=nsh;base.hi=nhi;
   var removeIds=mergeSel.filter(function(id){return id!==base.id;});
   S=S.filter(function(x){return removeIds.indexOf(x.id)<0;});
   mergeSel=[];mergeConfirm=false;mergeMode=false;
   svS();fl(n+'件を1件に統合しました');paint();
+}
+
+/* ======= 自主練 / マイページ ======= */
+function selfEntries(name){return SP.filter(function(e){return e.mb===name;});}
+function selfStats(name){
+  var es=selfEntries(name);
+  var sh=es.reduce(function(a,e){return a+e.sh;},0);
+  var hi=es.reduce(function(a,e){return a+e.hi;},0);
+  return{sh:sh,hi:hi,rate:sh?hi/sh:0,cnt:es.length};
+}
+function selfMonthly(name){
+  var mp={};
+  selfEntries(name).forEach(function(e){
+    var m=(e.date||'').slice(0,7);if(!m)return;
+    if(!mp[m])mp[m]={month:m,sh:0,hi:0};
+    mp[m].sh+=e.sh;mp[m].hi+=e.hi;
+  });
+  return Object.keys(mp).sort().reverse().map(function(m){
+    var o=mp[m];o.rate=o.sh?o.hi/o.sh:0;return o;
+  });
+}
+function selfRank(){
+  var mp={};
+  SP.forEach(function(e){
+    if(!mp[e.mb])mp[e.mb]={name:e.mb,sh:0,hi:0};
+    mp[e.mb].sh+=e.sh;mp[e.mb].hi+=e.hi;
+  });
+  var arr=Object.values(mp);
+  if(selfRankMode==='total'){
+    arr.sort(function(a,b){return b.hi-a.hi;});
+    var rank=1,res=[];
+    for(var i=0;i<arr.length;i++){
+      if(i>0&&arr[i].hi!==arr[i-1].hi)rank=i+1;
+      res.push(Object.assign({},arr[i],{rank:rank,rate:arr[i].sh?arr[i].hi/arr[i].sh:0}));
+    }
+    return res;
+  }
+  arr.sort(function(a,b){return(b.sh?b.hi/b.sh:0)-(a.sh?a.hi/a.sh:0);});
+  return assignRanks(arr);
+}
+function selfDateS(d){if(!d)return '';var p=d.split('-');return p.length===3?(parseInt(p[1],10)+'/'+parseInt(p[2],10)):d;}
+function selfDateF(d){if(!d)return '';var p=d.split('-');return p.length===3?(p[0]+'年'+parseInt(p[1],10)+'月'+parseInt(p[2],10)+'日'):d;}
+/* --- ログイン / PIN --- */
+function doSelfLogin(){
+  var name=selfLoginName;
+  var el=document.getElementById('self-pin');
+  var pin=el?(el.value||'').trim():'';
+  if(!name){fl('名前を選んでください',true);return;}
+  if(!/^\d{4}$/.test(pin)){fl('4桁の数字で入力してください',true);return;}
+  if(!Pins[name]){
+    Pins[name]=pinHash(pin);svPins();
+    myMb=name;svMe();selfLoginName='';selfSub='input';selfForm={date:todayStr(),sh:'20',hi:''};
+    fl(name+' さんのマイページを作成しました');paint();
+  }else if(Pins[name]===pinHash(pin)){
+    myMb=name;svMe();selfLoginName='';selfSub='input';selfForm={date:todayStr(),sh:'20',hi:''};
+    fl('ログインしました');paint();
+  }else{
+    fl('PINが違います',true);
+  }
+}
+function selfLogout(){myMb='';svMe();selfSub='input';paint();}
+function selfResetPin(name){if(!adminMode)return;delete Pins[name];svPins();fl(name+' のPINをリセットしました');paint();}
+/* --- 登録 / 削除 --- */
+function doSaveSelf(){
+  if(!myMb)return;
+  var dEl=document.getElementById('sf-date');
+  var shEl=document.getElementById('sf-sh');
+  var hiEl=document.getElementById('sf-hi');
+  if(!dEl||!shEl||!hiEl)return;
+  var date=dEl.value;
+  var sh=parseInt(shEl.value,10),hi=parseInt(hiEl.value,10);
+  if(!date){fl('日付を入力してください',true);return;}
+  if(isNaN(sh)||sh<1){fl('射数は1以上で入力してください',true);return;}
+  if(isNaN(hi)||hi<0){fl('的中数を正しく入力してください',true);return;}
+  if(hi>sh){fl('的中数は射数以下にしてください',true);return;}
+  SP.push({id:Date.now(),mb:myMb,date:date,sh:sh,hi:hi});
+  selfForm={date:date,sh:''+sh,hi:''};
+  svSP();fl('自主練を登録しました');paint();
+}
+function delSelf(id){SP=SP.filter(function(e){return e.id!==id;});svSP();paint();}
+/* --- 描画 --- */
+function selfStatBox(label,val){
+  return '<div style="flex:1"><div style="font-size:20px;font-weight:800">'+val+'</div>'
+    +'<div style="font-size:10.5px;color:var(--sub)">'+label+'</div></div>';
+}
+function tSelf(){
+  if(!myMb){
+    var sorted=membersSorted();
+    var opts='<option value="">-- 名前を選択 --</option>';
+    sorted.forEach(function(m){
+      var mt=Meta[m]||{};var prefix=mt.num?mt.num+'. ':'';
+      opts+='<option value="'+esc(m)+'"'+(selfLoginName===m?' selected':'')+'>'+prefix+m+'</option>';
+    });
+    var out='<div class="card">'
+      +'<p style="margin:0 0 4px;font-size:15px;font-weight:700">マイページ ログイン</p>'
+      +'<p style="margin:0 0 2px;font-size:11.5px;color:var(--sub)">自分の名前を選び、4桁のPINでログインします。初めての人はそのままPINを設定してください。</p>'
+      +'<label>氏名</label>'
+      +'<select id="self-name">'+opts+'</select>';
+    if(selfLoginName){
+      if(Pins[selfLoginName]){
+        out+='<label>PIN（4桁）</label>'
+          +'<input id="self-pin" type="password" inputmode="numeric" maxlength="4" placeholder="****">'
+          +'<button id="btn-self-login" class="btn prim">ログイン</button>';
+      }else{
+        out+='<div class="fl bi" style="display:block;margin:11px 0 0;padding:8px 11px;border-radius:8px">この名前はまだPIN未設定です。新しいPINを決めてください。</div>'
+          +'<label>新しいPIN（4桁の数字）</label>'
+          +'<input id="self-pin" type="password" inputmode="numeric" maxlength="4" placeholder="****">'
+          +'<button id="btn-self-login" class="btn prim">PINを設定して開始</button>';
+      }
+    }
+    out+='</div>';
+    if(adminMode){
+      out+='<div class="card" style="margin-top:12px"><p style="margin:0 0 6px;font-size:12px;font-weight:700;color:var(--sub)">PINリセット（管理者）</p>';
+      var setNames=Object.keys(Pins);
+      if(!setNames.length)out+='<div class="emp" style="padding:6px 0">PIN設定済みの部員はいません</div>';
+      else setNames.forEach(function(n){
+        out+='<div class="li"><span class="nm">'+n+'</span><button class="btn br" style="padding:6px 10px" data-self-reset="'+esc(n)+'">リセット</button></div>';
+      });
+      out+='</div>';
+    }
+    return out;
+  }
+  if(!selfForm.date)selfForm.date=todayStr();
+  var head='<div class="row" style="align-items:center;margin-bottom:12px">'
+    +'<div style="flex:1"><div style="font-size:16px;font-weight:800">'+myMb+' さんのマイページ</div>'
+    +'<div style="font-size:11px;color:var(--sub)">自主練の記録は成績表とは別で管理されます</div></div>'
+    +'<button class="btn bh" style="padding:7px 10px" id="btn-self-logout">ログアウト</button></div>';
+  var subs=[['input','登録'],['record','記録'],['rank','ランキング']];
+  var tabbar='<div class="tb">'+subs.map(function(kl){
+    return '<button class="t'+(selfSub===kl[0]?' on':'')+'" data-self-sub="'+kl[0]+'">'+kl[1]+'</button>';
+  }).join('')+'</div>';
+  var body=selfSub==='record'?selfRecordView():selfSub==='rank'?selfRankView():selfInputView();
+  return head+tabbar+body;
+}
+function selfInputView(){
+  var sv=parseFloat(selfForm.sh)||0,hv=parseFloat(selfForm.hi);
+  var sp=sv>0&&!isNaN(hv)&&hv>=0&&hv<=sv;var r=sp?hv/sv:0;
+  var out='<div class="card mb10">'
+    +'<p style="margin:0 0 6px;font-size:14px;font-weight:700">自主練を登録</p>'
+    +'<label>日付</label>'
+    +'<input id="sf-date" type="date" value="'+selfForm.date+'">'
+    +'<div class="g2">'
+      +'<div><label>射数 <span class="opt">（通常20）</span></label><input id="sf-sh" type="number" inputmode="numeric" min="1" value="'+selfForm.sh+'"></div>'
+      +'<div><label>的中数</label><input id="sf-hi" type="number" inputmode="numeric" min="0" placeholder="0〜'+(sv||20)+'" value="'+selfForm.hi+'"></div>'
+    +'</div>'
+    +'<div class="pre" id="sf-pre" style="display:'+(sp?'flex':'none')+'">'
+      +'<span style="font-size:13px;color:var(--sub)">今回の的中率</span>'
+      +'<span class="v" id="sf-pv" style="color:'+rc(r)+'">'+(sp?(r*100).toFixed(1)+'%':'')+'</span>'
+    +'</div>'
+    +'<button id="btn-self-save" class="btn prim">登録する</button>'
+    +'</div>';
+  var rec=selfEntries(myMb).slice().sort(function(a,b){return b.id-a.id;}).slice(0,5);
+  if(rec.length){
+    out+='<p style="font-size:11px;color:var(--sub);margin-bottom:6px">直近の自主練</p>';
+    rec.forEach(function(e){
+      out+='<div class="li"><div style="flex:1"><span class="nm">'+selfDateS(e.date)+'</span>'
+        +'<span style="font-weight:700;color:'+rc(e.hi/e.sh)+';margin-left:8px">'+e.hi+'/'+e.sh+'本 ('+(e.hi/e.sh*100).toFixed(1)+'%)</span></div>'
+        +'<button class="ib" data-self-del="'+e.id+'"><img src="data:image/png;base64,'+TRASH_ICON+'" style="width:16px;height:16px;vertical-align:middle"></button></div>';
+    });
+  }
+  return out;
+}
+function selfRecordView(){
+  var isSelf=selfHistView==='self';
+  var out='<div class="row mb10" style="gap:8px">'
+    +'<button class="btn '+(isSelf?'bi':'bh')+'" style="flex:1;padding:8px" data-self-view="self">自主練</button>'
+    +'<button class="btn '+(!isSelf?'bi':'bh')+'" style="flex:1;padding:8px" data-self-view="official">公式記録</button></div>';
+  if(isSelf){
+    var st=selfStats(myMb);
+    out+='<div class="card mb10"><div class="row" style="text-align:center">'
+      +selfStatBox('通算射数',st.sh)+selfStatBox('通算的中',st.hi)+selfStatBox('的中率',(st.rate*100).toFixed(1)+'%')
+      +'</div></div>';
+    var monthly=selfMonthly(myMb);
+    out+='<div class="card mb10"><p style="margin:0 0 6px;font-size:12px;font-weight:700;color:var(--sub)">月別 的中率（自主練）</p>'
+      +barChartSVG(monthly,function(d){return parseInt(d.month.split('-')[1],10)+'月';})+'</div>';
+    var list=selfEntries(myMb).slice().sort(function(a,b){return b.id-a.id;});
+    if(!list.length)out+='<div class="emp">まだ自主練の記録がありません</div>';
+    else list.forEach(function(e){
+      out+='<div class="li"><div style="flex:1"><span class="nm">'+selfDateF(e.date)+'</span>'
+        +'<span class="mono" style="color:var(--sub);margin-left:8px">'+e.hi+'/'+e.sh+'本</span>'
+        +'<span style="font-weight:700;color:'+rc(e.hi/e.sh)+';margin-left:6px">'+(e.hi/e.sh*100).toFixed(1)+'%</span></div>'
+        +'<button class="ib" data-self-del="'+e.id+'"><img src="data:image/png;base64,'+TRASH_ICON+'" style="width:16px;height:16px;vertical-align:middle"></button></div>';
+    });
+  }else{
+    var all=indivAllStats(myMb);
+    out+='<div class="card mb10"><div class="row" style="text-align:center">'
+      +selfStatBox('通算射数',all.sh)+selfStatBox('通算的中',all.hi)+selfStatBox('的中率',(all.rate*100).toFixed(1)+'%')
+      +'</div></div>';
+    var m2=indivMonthly(myMb);
+    if(m2.length)out+='<div class="card mb10"><p style="margin:0 0 6px;font-size:12px;font-weight:700;color:var(--sub)">月別 的中率（公式）</p>'
+      +barChartSVG(m2,function(d){return parseInt(d.month.split('-')[1],10)+'月';})+'</div>';
+    var ent=S.filter(function(e){return e.mb===myMb;}).slice().sort(function(a,b){return b.id-a.id;});
+    if(!ent.length)out+='<div class="emp">公式記録がありません</div>';
+    else ent.forEach(function(e){
+      out+='<div class="li"><div style="flex:1"><span class="nm">'+fm(e.d)+' '+recWeekLabel(e)+'</span>'
+        +'<span class="mono" style="color:var(--sub);margin-left:8px">'+e.hi+'/'+e.sh+'本</span>'
+        +'<span style="font-weight:700;color:'+rc(e.hi/e.sh)+';margin-left:6px">'+(e.hi/e.sh*100).toFixed(1)+'%</span></div></div>';
+    });
+    out+='<p style="font-size:11px;color:var(--faint);margin-top:8px">※公式記録の編集は「履歴」タブ（管理者）で行えます。</p>';
+  }
+  return out;
+}
+function selfRankView(){
+  var byRate=selfRankMode==='rate';
+  var out='<div class="row mb10" style="gap:8px">'
+    +'<button class="btn '+(byRate?'bi':'bh')+'" style="flex:1;padding:8px" data-self-rank="rate">的中率</button>'
+    +'<button class="btn '+(!byRate?'bi':'bh')+'" style="flex:1;padding:8px" data-self-rank="total">的中数</button></div>';
+  var rk=selfRank();
+  if(!rk.length){out+='<div class="emp">まだ自主練の記録がありません</div>';return out;}
+  out+='<div class="card">';
+  rk.forEach(function(m){
+    var mine=m.name===myMb;
+    out+='<div class="li"'+(mine?' style="background:var(--acc-bg)"':'')+'>'
+      +'<div style="width:30px;flex:none;font-weight:800;color:var(--sub)">'+m.rank+'</div>'
+      +'<div style="flex:1;min-width:0"><span class="nm">'+m.name+'</span>'+(mine?'<span class="me">あなた</span>':'')+'</div>'
+      +'<div style="text-align:right"><span style="font-weight:700;color:'+rc(m.rate)+'">'+(byRate?(m.rate*100).toFixed(1)+'%':m.hi+'本')+'</span>'
+      +'<span class="mono" style="color:var(--faint);font-size:11px;margin-left:6px">'+m.hi+'/'+m.sh+'</span></div></div>';
+  });
+  out+='</div>';
+  return out;
 }
 
 /* ======= SETTINGS ======= */
