@@ -94,7 +94,7 @@ tbody tr:nth-child(even){background:var(--sec)}
 .achv-tappable{cursor:pointer}
 .achv-tappable:active{opacity:.7}
 /* 分附（縦・全部員・スクロール表） */
-.bun-sheet-wrap{overflow-x:auto;overflow-y:auto;max-height:75vh;-webkit-overflow-scrolling:touch;margin:8px 0;border:1px solid var(--ln);border-radius:10px}
+.bun-sheet-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch;margin:8px 0;border:1px solid var(--ln);border-radius:10px}
 .bun-table{border-collapse:collapse;table-layout:fixed}
 .bun-rn-r{position:sticky;right:0;z-index:2;background:var(--sec);border-left:1.5px solid var(--ln);font-size:10px;color:var(--faint);text-align:left;padding:0 4px 0 6px;width:28px;white-space:nowrap}
 .bun-total-row td{position:sticky;top:0;z-index:4;padding:5px 4px;text-align:center;font-size:12px;background:var(--sec);border-bottom:2px solid var(--ink);width:50px;min-width:50px}
@@ -108,7 +108,10 @@ tbody tr:nth-child(even){background:var(--sec)}
 .bun-tc-miss{background:var(--acc-bg);color:var(--bad)}
 .bun-sep-row td{height:5px;background:var(--sec);border-top:2px dashed var(--ln2);border-bottom:2px dashed var(--ln2);padding:0}
 .bun-name-row td,.bun-name-row th{position:sticky;bottom:0;z-index:3;border-top:2px solid var(--ink);background:var(--sec)}
-.bun-name-cell{text-align:center;vertical-align:bottom;width:50px;min-width:50px;word-break:keep-all}
+.bun-name-cell{text-align:center;vertical-align:top;width:50px;min-width:50px;word-break:keep-all;position:relative;padding-bottom:24px}
+.bun-vsep{width:6px!important;min-width:6px!important;max-width:6px!important;padding:0!important;background:var(--sec);border-left:2px dashed var(--ln2)!important;border-right:2px dashed var(--ln2)!important}
+.modal-ov{position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;z-index:1000;padding:24px}
+.modal-bx{background:var(--sf);border-radius:16px;padding:20px 22px;max-width:340px;width:100%;box-shadow:0 12px 40px rgba(0,0,0,.28);text-align:center}
 .bun-vname{-webkit-writing-mode:vertical-rl;-ms-writing-mode:tb-rl;writing-mode:vertical-rl;-webkit-text-orientation:mixed;text-orientation:mixed;font-size:13px;font-weight:700;padding:6px 2px;display:inline-block;letter-spacing:.05em}
 .bun-dragging{opacity:.3}
 .bun-drop-over{outline:2px solid var(--acc);outline-offset:-2px}
@@ -348,7 +351,7 @@ var mergeMode=false,mergeSel=[],mergeConfirm=false,mergeForm={d:'',sess:0,sh:0,h
 var SP=[],KSP='kyudo_sp_v1';
 var Pins={},KPINS='kyudo_pins_v1';
 var myMb='',KME='kyudo_me_v1';
-var selfSub='input',selfForm={date:'',sh:'20',hi:''};
+var selfSub='input',selfForm={date:'',sh:'20',hi:''},selfMarks=[];
 var selfHistView='self',selfRankMode='rate';
 var selfLoginName='',selfSetMode=false;
 function pinHash(s){var h=5381;s=''+s;for(var i=0;i<s.length;i++){h=((h<<5)+h+s.charCodeAt(i))|0;}return 'h'+(h>>>0);}
@@ -605,6 +608,7 @@ function paint(){
   document.getElementById('con').innerHTML=banner
     +(tab==='input'?tBun():tab==='table'?tTb():tab==='penalty'?tPenalty():tab==='history'?tHi():tab==='self'?tSelf():tSt());
   bindEvents();
+  if(tab==='input'&&bunStep==='input'){var _sw=document.querySelector('.bun-sheet-wrap');if(_sw)_sw.scrollLeft=_sw.scrollWidth;}
 }
 
 /* ------ bind all dynamic events after innerHTML ------ */
@@ -652,6 +656,8 @@ function bindEvents(){
     if(!bunSaveConfirm){bunSaveConfirm=true;paint();}
     else{doSaveBun();}
   });});
+  q('btn-bun-save-yes',function(el){el.addEventListener('click',function(){doSaveBun();});});
+  q('bun-save-modal',function(el){el.addEventListener('click',function(ev){if(ev.target===el){bunSaveConfirm=false;paint();}});});
   q('btn-bun-save-cancel',function(el){el.addEventListener('click',function(){bunSaveConfirm=false;paint();});});
   q('btn-draft-resume',function(el){el.addEventListener('click',function(){
     var dr=bunDraftRemote;
@@ -780,8 +786,9 @@ function bindEvents(){
     el.addEventListener('click',function(){delSelf(parseInt(this.getAttribute('data-self-del'),10));});
   });
   q('sf-date',function(el){el.addEventListener('change',function(){selfForm.date=this.value;});});
-  q('sf-sh',function(el){el.addEventListener('input',function(){selfForm.sh=this.value;selfLpUpdate();});});
-  q('sf-hi',function(el){el.addEventListener('input',function(){selfForm.hi=this.value;selfLpUpdate();});});
+  document.querySelectorAll('[data-self-idx]').forEach(function(el){
+    el.addEventListener('click',function(){toggleSelfShot(parseInt(this.getAttribute('data-self-idx'),10));});
+  });
   q('ef-date',function(el){el.addEventListener('input',function(){var w=document.getElementById('ef-wk');if(w)w.textContent=this.value?fm(this.value.slice(0,7))+' 第'+calWeekOfMonth(this.value)+'週として記録':'';});});
   q('mf-date',function(el){el.addEventListener('input',function(){var w=document.getElementById('mf-wk');if(w)w.textContent=this.value?fm(this.value.slice(0,7))+' 第'+calWeekOfMonth(this.value)+'週として記録':'';});});
   /* 分附 tab events handled above */
@@ -880,6 +887,7 @@ function bindEvents(){
   q('btn-wipe-start',function(el){el.addEventListener('click',function(){if(!adminMode)return;wipeStep=1;paint();});});
   q('btn-wipe-next',function(el){el.addEventListener('click',function(){if(!adminMode)return;wipeStep=2;paint();});});
   q('btn-wipe-cancel',function(el){el.addEventListener('click',function(){wipeStep=0;paint();});});
+  q('wipe-modal',function(el){el.addEventListener('click',function(ev){if(ev.target===el){wipeStep=0;paint();}});});
   q('btn-wipe-final',function(el){el.addEventListener('click',function(){
     if(!adminMode)return;
     var v=document.getElementById('inp-wipe-confirm');
@@ -1069,13 +1077,16 @@ function getBunDefaultOrder(){
       scores[name]=sh>0?hi/sh:-1;
     }
   });
-  // 的中率低い順（右が高い順）、データなしは末尾
+  var serialIdx={};membersSorted().forEach(function(n,i){serialIdx[n]=i;});
+  var anyScored=Object.keys(scores).length>0;
+  if(!anyScored)return base; // 前週の記録が誰も無い→通し番号昇順
+  // 記録あり＝右側（右ほど的中率が高い＝右端が先週トップ）。記録なし＝その左に、右から通し番号昇順（記録ありの直左＝番号が小さい）
   return base.sort(function(a,b){
     var ha=scores.hasOwnProperty(a),hb=scores.hasOwnProperty(b);
     if(ha&&hb)return scores[a]-scores[b];
-    if(ha)return -1;
-    if(hb)return 1;
-    return 0;
+    if(ha)return 1;
+    if(hb)return -1;
+    return serialIdx[b]-serialIdx[a];
   });
 }
 function getBunMembers(){
@@ -1255,11 +1266,16 @@ function tBun(){
 
   if(bunViewMode==='table'){
     // ---- 一覧表（既存） ----
+    // 立ごとの縦区切り位置（右から人数分ずつ）
+    var _tcol={};
+    (function(){var cum=0;for(var i=0;i<bunTate-1;i++){cum+=bunTateList[i]||4;var li=members.length-cum;if(li>0)_tcol[li]=1;}})();
+    var _nSep=Object.keys(_tcol).length;
+    var _vsep='<td class="bun-vsep"></td>';
     var headerRow='<tr class="bun-total-row">'
-      +members.map(function(n){
+      +members.map(function(n,ci){
         var hi=(bunData[n]||[]).filter(function(s){return s===true;}).length;
         var col=hi>=(shots*0.7)?'var(--good)':hi>=(shots*0.5)?'var(--info)':hi>=(shots*0.35)?'var(--warn)':'var(--ink)';
-        return '<td data-bun-total="'+esc(n)+'" style="color:'+col+';font-weight:700">'+hi+'</td>';
+        return (_tcol[ci]?_vsep:'')+'<td data-bun-total="'+esc(n)+'" style="color:'+col+';font-weight:700">'+hi+'</td>';
       }).join('')
       +'<th class="bun-rn-r">計</th></tr>';
     var bodyRows='';
@@ -1267,21 +1283,21 @@ function tBun(){
     for(var shotNum=shots;shotNum>=1;shotNum--){
       var idx=shotNum-1;
       if(idx<shots-1&&_bounds.indexOf(idx)>=0){
-        bodyRows+='<tr class="bun-sep-row"><td colspan="'+(members.length+1)+'"></td></tr>';
+        bodyRows+='<tr class="bun-sep-row"><td colspan="'+(members.length+_nSep+1)+'"></td></tr>';
       }
       bodyRows+='<tr class="bun-row">'
-        +members.map(function(n){
+        +members.map(function(n,ci){
           var s=(bunData[n]||[])[idx];
           var cls='bun-tc'+(s===true?' bun-tc-hit':s===false?' bun-tc-miss':' bun-tc-empty');
-          return '<td class="'+cls+'" data-bun-name="'+esc(n)+'" data-bun-idx="'+idx+'">'+(s===true?'○':s===false?'✗':'')+'</td>';
+          return (_tcol[ci]?_vsep:'')+'<td class="'+cls+'" data-bun-name="'+esc(n)+'" data-bun-idx="'+idx+'">'+(s===true?'○':s===false?'✗':'')+'</td>';
         }).join('')
         +'<th class="bun-rn-r">'+shotNum+'</th></tr>';
     }
     var nameRow='<tr class="bun-name-row">'
-      +members.map(function(n){
-        return '<td class="bun-name-cell" data-bun-member="'+esc(n)+'">'
+      +members.map(function(n,ci){
+        return (_tcol[ci]?_vsep:'')+'<td class="bun-name-cell" data-bun-member="'+esc(n)+'">'
           +'<span class="bun-vname">'+n+'</span>'
-          +'<span class="bun-dh" style="touch-action:none;user-select:none;cursor:grab;display:block;font-size:14px;color:var(--faint);text-align:center;padding:3px 0">⠿</span>'
+          +'<span class="bun-dh" style="touch-action:none;user-select:none;cursor:grab;position:absolute;left:0;right:0;bottom:2px;font-size:14px;color:var(--faint);text-align:center">⠿</span>'
           +'</td>';
       }).join('')
       +'<th class="bun-rn-r"></th></tr>';
@@ -1388,14 +1404,18 @@ function tBun(){
     +modeBar
     +inputArea
     +'<div class="row" style="gap:8px;margin-top:12px">'
-      +(bunSaveConfirm
-        ?'<div style="padding:10px 12px;background:#fdf1e8;border-radius:8px;margin-bottom:8px;font-size:13px;font-weight:700;color:var(--warn,#b9770e)">全員20射引き終わりましたか？</div>'
-          +'<div class="row" style="gap:8px">'
-            +'<button id="btn-bun-save-cancel" class="btn bh" style="flex:1;padding:10px">戻る</button>'
-            +'<button id="btn-bun-save" class="btn prim" style="flex:2;margin-top:0;padding:10px">はい、記録する</button>'
-          +'</div>'
-        :'<button id="btn-bun-save" class="btn prim" style="margin-top:0;width:100%;padding:12px">記録する</button>')
-    +'</div></div>';
+      +'<button id="btn-bun-save" class="btn prim" style="margin-top:0;width:100%;padding:12px">記録する</button>'
+    +'</div></div>'
+    +(bunSaveConfirm
+      ?'<div class="modal-ov" id="bun-save-modal"><div class="modal-bx">'
+        +'<div style="font-size:17px;font-weight:800;margin-bottom:6px">全員20射引き終わりましたか？</div>'
+        +'<div style="font-size:13px;color:var(--sub);margin-bottom:18px">'+selfDateF(bunDate)+' — '+members.length+'名 の的中を記録します。</div>'
+        +'<div class="row" style="gap:8px">'
+          +'<button id="btn-bun-save-cancel" class="btn bh" style="flex:1;padding:11px">戻る</button>'
+          +'<button id="btn-bun-save-yes" class="btn prim" style="flex:1;margin-top:0;padding:11px">はい、記録する</button>'
+        +'</div>'
+      +'</div></div>'
+      :'');
 }
 function doSaveBun(){
   var members=getBunMembers();var saved=0;
@@ -1511,11 +1531,13 @@ function tPenalty(){
 function jstNow(){return new Date(Date.now()+9*3600*1000);}
 function todayStr(){return jstNow().toISOString().slice(0,10);}
 function curMonth(){return jstNow().toISOString().slice(0,7);}
-/* 暦ベースの「その月の第何週」。1日を含む週を第1週とし、日曜始まりで数える */
-function calWeekOfMonth(dateStr){var p=(dateStr||'').split('-');if(p.length<3)return 0;var y=+p[0],m=+p[1],d=+p[2];if(!y||!m||!d)return 0;var fd=new Date(y,m-1,1).getDay();return Math.ceil((d+fd)/7);}
+/* 暦ベースの「その月の第何週」。1日を含む週を第1週とし、月曜始まりで数える */
+function calWeekOfMonth(dateStr){var p=(dateStr||'').split('-');if(p.length<3)return 0;var y=+p[0],m=+p[1],d=+p[2];if(!y||!m||!d)return 0;var fd=(new Date(y,m-1,1).getDay()+6)%7;return Math.ceil((d+fd)/7);}
 /* レコードの週（新:日付から算出 / 旧:sess）と月 */
 function recWeek(e){return e&&e.date?calWeekOfMonth(e.date):(e&&e.sess?e.sess:0);}
 function recWeekLabel(e){var w=recWeek(e);return w>0?'第'+w+'週':'月計';}
+/* 展開履歴の期間表示：日付があれば実日付、なければ月＋週 */
+function recPeriodLabel(e){return e&&e.date?selfDateF(e.date):(fm(e.d)+' '+recWeekLabel(e));}
 function tJobs(){
   if(jobView==='detail')return tJobDetail();
   if(jobView==='create')return tJobCreate();
@@ -1797,7 +1819,7 @@ function rankCard(st,thi,tsh,label,getRecords){
       }else{
         inner=recs.map(function(e){
           return '<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 4px;border-bottom:1px solid var(--ln2);font-size:12px">'
-            +'<span style="color:var(--sub)">'+fm(e.d)+' '+recWeekLabel(e)+'</span>'
+            +'<span style="color:var(--sub)">'+recPeriodLabel(e)+'</span>'
             +'<span><span style="font-weight:700;color:'+rc(e.hi/e.sh)+'">'+(e.hi/e.sh*100).toFixed(1)+'%</span>'
               +'<span class="mono" style="color:var(--sub);margin-left:6px">'+e.hi+'/'+e.sh+'本</span></span>'
             +'</div>';
@@ -2415,33 +2437,30 @@ function doSelfLogin(){
   if(!/^\d{4}$/.test(pin)){fl('4桁の数字で入力してください',true);return;}
   if(!Pins[name]){
     Pins[name]=pinHash(pin);svPins();
-    myMb=name;svMe();selfLoginName='';selfSub='input';selfForm={date:todayStr(),sh:'20',hi:''};
+    myMb=name;svMe();selfLoginName='';selfSub='input';selfForm={date:todayStr(),sh:'20',hi:''};selfMarks=[];
     fl(name+' さんのマイページを作成しました');paint();
   }else if(Pins[name]===pinHash(pin)){
-    myMb=name;svMe();selfLoginName='';selfSub='input';selfForm={date:todayStr(),sh:'20',hi:''};
+    myMb=name;svMe();selfLoginName='';selfSub='input';selfForm={date:todayStr(),sh:'20',hi:''};selfMarks=[];
     fl('ログインしました');paint();
   }else{
     fl('PINが違います',true);
   }
 }
-function selfLogout(){myMb='';svMe();selfSub='input';paint();}
+function selfLogout(){myMb='';svMe();selfSub='input';selfMarks=[];paint();}
 function selfResetPin(name){if(!adminMode)return;delete Pins[name];svPins();fl(name+' のPINをリセットしました');paint();}
 /* --- 登録 / 削除 --- */
 function doSaveSelf(){
   if(!myMb)return;
   var dEl=document.getElementById('sf-date');
-  var shEl=document.getElementById('sf-sh');
-  var hiEl=document.getElementById('sf-hi');
-  if(!dEl||!shEl||!hiEl)return;
-  var date=dEl.value;
-  var sh=parseInt(shEl.value,10),hi=parseInt(hiEl.value,10);
+  var date=dEl?dEl.value:selfForm.date;
   if(!date){fl('日付を入力してください',true);return;}
-  if(isNaN(sh)||sh<1){fl('射数は1以上で入力してください',true);return;}
-  if(isNaN(hi)||hi<0){fl('的中数を正しく入力してください',true);return;}
-  if(hi>sh){fl('的中数は射数以下にしてください',true);return;}
+  var sh=selfMarks.filter(function(v){return v!==null&&v!==undefined;}).length;
+  var hi=selfMarks.filter(function(v){return v===true;}).length;
+  if(sh<1){fl('○か✗を1射以上マークしてください',true);return;}
   SP.push({id:Date.now(),mb:myMb,date:date,sh:sh,hi:hi});
-  selfForm={date:date,sh:''+sh,hi:''};
-  svSP();fl('自主練を登録しました');paint();
+  selfForm.date=date;
+  selfMarks=new Array(20).fill(null);
+  svSP();fl(sh+'射（'+hi+'中）を登録しました');paint();
 }
 function delSelf(id){SP=SP.filter(function(e){return e.id!==id;});svSP();paint();}
 /* --- 描画 --- */
@@ -2498,21 +2517,54 @@ function tSelf(){
   var body=selfSub==='record'?selfRecordView():selfSub==='rank'?selfRankView():selfInputView();
   return head+tabbar+body;
 }
+function selfTotalHTML(sh,hi){
+  var r=sh?hi/sh:0;
+  return '<span style="font-size:13px;color:var(--sub)">的中 <b style="color:var(--ink)">'+hi+'</b> / '+sh+' 射</span>'
+    +'<span class="v" style="color:'+rc(r)+'">'+(sh?(r*100).toFixed(1)+'%':'—')+'</span>';
+}
+function updateSelfTotals(){
+  var sh=selfMarks.filter(function(v){return v!==null&&v!==undefined;}).length;
+  var hi=selfMarks.filter(function(v){return v===true;}).length;
+  var t=document.getElementById('self-total');
+  if(t)t.innerHTML=selfTotalHTML(sh,hi);
+  var tc=document.getElementById('self-total-cell');
+  if(tc){var N=selfMarks.length;tc.textContent=hi;tc.style.color=hi>=(N*0.7)?'var(--good)':hi>=(N*0.5)?'var(--info)':hi>=(N*0.35)?'var(--warn)':'var(--ink)';}
+}
+function toggleSelfShot(idx){
+  var cur=selfMarks[idx];
+  selfMarks[idx]=(cur===null||cur===undefined)?true:cur===true?false:null;
+  var s=selfMarks[idx];
+  var cell=document.querySelector('[data-self-idx="'+idx+'"]');
+  if(cell){cell.className='bun-tc'+(s===true?' bun-tc-hit':s===false?' bun-tc-miss':' bun-tc-empty');cell.textContent=s===true?'○':s===false?'✗':'';}
+  updateSelfTotals();
+}
 function selfInputView(){
-  var sv=parseFloat(selfForm.sh)||0,hv=parseFloat(selfForm.hi);
-  var sp=sv>0&&!isNaN(hv)&&hv>=0&&hv<=sv;var r=sp?hv/sv:0;
+  if(!selfMarks.length)selfMarks=new Array(20).fill(null);
+  if(!selfForm.date)selfForm.date=todayStr();
+  var N=selfMarks.length;
+  var sh=selfMarks.filter(function(v){return v!==null&&v!==undefined;}).length;
+  var hi=selfMarks.filter(function(v){return v===true;}).length;
+  var col=hi>=(N*0.7)?'var(--good)':hi>=(N*0.5)?'var(--info)':hi>=(N*0.35)?'var(--warn)':'var(--ink)';
+  var totalRow='<tr class="bun-total-row"><td id="self-total-cell" style="color:'+col+';font-weight:700">'+hi+'</td><th class="bun-rn-r">計</th></tr>';
+  var bodyRows='';
+  for(var num=N;num>=1;num--){
+    var idx=num-1;
+    if(idx<N-1&&idx%4===3){
+      bodyRows+='<tr class="bun-sep-row"><td colspan="2"></td></tr>';
+    }
+    var s=selfMarks[idx];
+    var cls='bun-tc'+(s===true?' bun-tc-hit':s===false?' bun-tc-miss':' bun-tc-empty');
+    bodyRows+='<tr class="bun-row"><td class="'+cls+'" data-self-idx="'+idx+'">'+(s===true?'○':s===false?'✗':'')+'</td><th class="bun-rn-r">'+num+'</th></tr>';
+  }
+  var table='<div style="text-align:center"><div class="bun-sheet-wrap" style="display:inline-block">'
+    +'<table class="bun-table"><thead>'+totalRow+'</thead><tbody>'+bodyRows+'</tbody></table></div></div>';
   var out='<div class="card mb10">'
     +'<p style="margin:0 0 6px;font-size:14px;font-weight:700">自主練を登録</p>'
     +'<label>日付</label>'
     +'<input id="sf-date" type="date" value="'+selfForm.date+'">'
-    +'<div class="g2">'
-      +'<div><label>射数 <span class="opt">（通常20）</span></label><input id="sf-sh" type="number" inputmode="numeric" min="1" value="'+selfForm.sh+'"></div>'
-      +'<div><label>的中数</label><input id="sf-hi" type="number" inputmode="numeric" min="0" placeholder="0〜'+(sv||20)+'" value="'+selfForm.hi+'"></div>'
-    +'</div>'
-    +'<div class="pre" id="sf-pre" style="display:'+(sp?'flex':'none')+'">'
-      +'<span style="font-size:13px;color:var(--sub)">今回の的中率</span>'
-      +'<span class="v" id="sf-pv" style="color:'+rc(r)+'">'+(sp?(r*100).toFixed(1)+'%':'')+'</span>'
-    +'</div>'
+    +'<div style="font-size:11px;color:var(--sub);margin:11px 0 2px">タップで ○（中）→ ✗（外）→ 空 を切り替え</div>'
+    +table
+    +'<div class="pre" id="self-total" style="display:flex">'+selfTotalHTML(sh,hi)+'</div>'
     +'<button id="btn-self-save" class="btn prim">登録する</button>'
     +'</div>';
   var rec=selfEntries(myMb).slice().sort(function(a,b){return b.id-a.id;}).slice(0,5);
@@ -2659,21 +2711,26 @@ function tSt(){
     +'<div class="dan" style="border-color:#b91c1c">'
       +'<p style="margin:0 0 4px;font-size:14px;font-weight:700;color:var(--bad)">⚠️ 全データを完全に削除</p>'
       +'<p style="margin:0 0 12px;font-size:12px;color:var(--sub)">部員・記録・出欠・罰則・仕事の全データを空にします。元には戻せません。事前にエクスポートでバックアップを取ることを強くおすすめします。</p>'
-      +(wipeStep===0
-        ?'<button id="btn-wipe-start" class="btn" style="background:#b91c1c;color:#fff;width:100%">全データを完全に削除する</button>'
-        :wipeStep===1
-        ?'<div style="padding:10px 12px;background:#fdecea;border-radius:8px;color:var(--bad);font-size:12px;margin-bottom:10px;font-weight:700">1/2: 本当に全データを削除しますか？部員・記録・出欠・罰則・仕事がすべて消えます。</div>'
-          +'<div class="row" style="gap:8px">'
-            +'<button id="btn-wipe-cancel" class="btn bh" style="flex:1">キャンセル</button>'
-            +'<button id="btn-wipe-next" class="btn" style="flex:1;background:#b91c1c;color:#fff">次へ</button>'
-          +'</div>'
-        :'<div style="padding:10px 12px;background:#fdecea;border-radius:8px;color:var(--bad);font-size:12px;margin-bottom:10px;font-weight:700">2/2: 確認のため「削除する」と入力してください</div>'
-          +'<input id="inp-wipe-confirm" type="text" placeholder="削除する" style="width:100%;margin-bottom:10px">'
-          +'<div class="row" style="gap:8px">'
-            +'<button id="btn-wipe-cancel" class="btn bh" style="flex:1">キャンセル</button>'
-            +'<button id="btn-wipe-final" class="btn" style="flex:1;background:#b91c1c;color:#fff">完全に削除する</button>'
-          +'</div>')
-    +'</div>';
+      +'<button id="btn-wipe-start" class="btn" style="background:#b91c1c;color:#fff;width:100%">全データを完全に削除する</button>'
+    +'</div>'
+    +(wipeStep>0
+      ?'<div class="modal-ov" id="wipe-modal"><div class="modal-bx">'
+        +(wipeStep===1
+          ?'<div style="font-size:17px;font-weight:800;color:var(--bad);margin-bottom:6px">全データを削除しますか？</div>'
+            +'<div style="font-size:13px;color:var(--sub);margin-bottom:18px">部員・記録・出欠・罰則・仕事がすべて消えます。元には戻せません。</div>'
+            +'<div class="row" style="gap:8px">'
+              +'<button id="btn-wipe-cancel" class="btn bh" style="flex:1;padding:11px">キャンセル</button>'
+              +'<button id="btn-wipe-next" class="btn" style="flex:1;padding:11px;background:#b91c1c;color:#fff">次へ</button>'
+            +'</div>'
+          :'<div style="font-size:17px;font-weight:800;color:var(--bad);margin-bottom:6px">最終確認</div>'
+            +'<div style="font-size:13px;color:var(--sub);margin-bottom:12px">確認のため「削除する」と入力してください。</div>'
+            +'<input id="inp-wipe-confirm" type="text" placeholder="削除する" style="width:100%;margin-bottom:14px">'
+            +'<div class="row" style="gap:8px">'
+              +'<button id="btn-wipe-cancel" class="btn bh" style="flex:1;padding:11px">キャンセル</button>'
+              +'<button id="btn-wipe-final" class="btn" style="flex:1;padding:11px;background:#b91c1c;color:#fff">完全に削除する</button>'
+            +'</div>')
+      +'</div></div>'
+      :'');
 }
 function doAdd(){
   var el=document.getElementById('inp-nm');if(!el)return;
