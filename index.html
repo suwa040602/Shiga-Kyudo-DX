@@ -64,6 +64,17 @@ tbody tr:nth-child(even){background:var(--sec)}
 .mt{flex:1;padding:8px 4px;font-size:12.5px;font-weight:600;border:none;background:var(--sf);color:var(--sub);cursor:pointer;font-family:inherit;border-left:1px solid var(--ln)}
 .mt:first-child{border-left:none}
 .mt.on{background:var(--acc);color:#fff}
+.mchips{display:flex;gap:6px;overflow-x:auto;-webkit-overflow-scrolling:touch;padding-bottom:2px;margin-bottom:10px}
+.mchip{padding:6px 12px;border:1px solid var(--ln2);border-radius:16px;background:var(--sf);font-size:12.5px;font-weight:600;color:var(--sub);white-space:nowrap;cursor:pointer;font-family:inherit;flex:none}
+.mchip.on{background:var(--acc);color:#fff;border-color:var(--acc)}
+.wkchks{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px}
+.wkchk{display:flex;align-items:center;gap:9px;width:100%;padding:9px 11px;border-radius:6px;background:transparent;font-size:13px;font-weight:600;color:var(--ink);cursor:pointer}
+.wkchk.on{background:var(--acc-bg);color:var(--acc)}
+.wkchk input{margin:0;accent-color:var(--acc);width:16px;height:16px;flex:none}
+.wk-dd{margin-bottom:10px}
+.wk-dd-btn{width:100%;text-align:left;padding:10px 12px;border:1px solid var(--ln2);border-radius:9px;background:var(--sf);font-size:13px;font-weight:600;color:var(--ink);display:flex;align-items:center;cursor:pointer;font-family:inherit}
+.wk-dd-ar{margin-left:auto;color:var(--sub);font-size:10px}
+.wk-dd-panel{margin-top:6px;border:1px solid var(--ln2);border-radius:9px;padding:4px;max-height:260px;overflow-y:auto;background:var(--sf)}
 .dan{background:var(--acc-bg);border:1px solid var(--acc-ln);border-radius:13px;padding:16px 18px}
 .ib{border:none;background:none;cursor:pointer;color:var(--faint);font-size:17px;padding:4px 6px;line-height:1}
 /* attendance inline accordion */
@@ -115,6 +126,10 @@ tbody tr:nth-child(even){background:var(--sec)}
 .bun-vname{-webkit-writing-mode:vertical-rl;-ms-writing-mode:tb-rl;writing-mode:vertical-rl;-webkit-text-orientation:mixed;text-orientation:mixed;font-size:13px;font-weight:700;padding:6px 2px;display:inline-block;letter-spacing:.05em}
 .bun-dragging{opacity:.3}
 .bun-drop-over{outline:2px solid var(--acc);outline-offset:-2px}
+.bun-namebar{position:fixed;bottom:0;z-index:50;background:var(--sec);border-top:2px solid var(--ink);box-shadow:0 -3px 10px rgba(0,0,0,.10)}
+.bun-namebar-scroll{overflow-x:hidden}
+.bun-namebar .bun-name-cell{padding-bottom:4px;padding-top:4px}
+.bun-namebar table{margin:0}
 </style>
 </head>
 <body>
@@ -341,6 +356,7 @@ var CURM=jstNow().toISOString().slice(0,7);
 var KS='kyudo_s2',KM='kyudo_m2',KMeta='kyudo_meta_v1',KA='kyudo_att_v1';
 var S=[],M=[],Meta={},A={};
 var tab='input',mo='all',tMode='monthly',sesKey='',histMb='all';
+var sesSel=null,sesOpen=false;
 var fYear='all',fGender='all';
 var form={mb:'',d:CURM,sess:1,sh:'20',hi:''};
 var editId=null,editForm={};
@@ -545,7 +561,10 @@ function assignRanks(sorted){
   return result;
 }
 function getStats(d){
-  var src=d==='all'?S:S.filter(function(e){return e.d===d;});
+  var src;
+  if(d==='all')src=S;
+  else if(Array.isArray(d))src=d.length?S.filter(function(e){return d.indexOf(e.d)>=0;}):S;
+  else src=S.filter(function(e){return e.d===d;});
   var active=activeMbs();var mp={};
   src.filter(function(e){return!active||active.has(e.mb);}).forEach(function(e){
     if(!mp[e.mb])mp[e.mb]={name:e.mb,sh:0,hi:0};
@@ -554,6 +573,24 @@ function getStats(d){
   var sorted=Object.values(mp).sort(function(a,b){return(b.sh?b.hi/b.sh:0)-(a.sh?a.hi/a.sh:0);});
   return assignRanks(sorted);
 }
+/* 月選択（'all' / 単月文字列 / 複数月配列 を許容） */
+function moList(){return Array.isArray(mo)?mo:(mo==='all'?[]:[mo]);}
+function moIsAll(){return moList().length===0;}
+function moMatch(e){return moIsAll()||moList().indexOf(e.d)>=0;}
+function moLabel(){
+  if(moIsAll())return '通算';
+  var list=moList().slice().sort();
+  if(list.length===1)return fm(list[0]);
+  var ys={};list.forEach(function(m){ys[m.split('-')[0]]=1;});
+  if(Object.keys(ys).length===1)return list[0].split('-')[0]+'年 '+list.map(function(m){return parseInt(m.split('-')[1],10)+'月';}).join('・');
+  return list.map(function(m){return fm(m);}).join('・');
+}
+function toggleMo(m){
+  var list=moList().slice();var i=list.indexOf(m);
+  if(i>=0)list.splice(i,1);else list.push(m);
+  mo=list.length?list:'all';rankExpandName='';paint();
+}
+function setMoAll(){mo='all';rankExpandName='';paint();}
 function getSessStats(key){
   var p=key.split('|');var d=p[0];var si=parseInt(p[1],10);
   var active=activeMbs();var mp={};
@@ -563,6 +600,30 @@ function getSessStats(key){
   });
   var sorted=Object.values(mp).sort(function(a,b){return(b.sh?b.hi/b.sh:0)-(a.sh?a.hi/a.sh:0);});
   return assignRanks(sorted);
+}
+/* 週別：複数週を合算 */
+function sessMatch(e,keys){return keys.some(function(k){var p=k.split('|');return e.d===p[0]&&recWeek(e)===parseInt(p[1],10);});}
+function getSessStatsMulti(keys){
+  keys=keys||[];
+  var active=activeMbs();var mp={};
+  S.filter(function(e){return sessMatch(e,keys)&&(!active||active.has(e.mb));}).forEach(function(e){
+    if(!mp[e.mb])mp[e.mb]={name:e.mb,sh:0,hi:0};
+    mp[e.mb].sh+=e.sh;mp[e.mb].hi+=e.hi;
+  });
+  var sorted=Object.values(mp).sort(function(a,b){return(b.sh?b.hi/b.sh:0)-(a.sh?a.hi/a.sh:0);});
+  return assignRanks(sorted);
+}
+function sessLabel(keys){
+  keys=keys||[];
+  if(!keys.length)return '週未選択';
+  if(keys.length===1)return fsk(keys[0]);
+  var sorted=keys.slice().sort();
+  var months={};sorted.forEach(function(k){months[k.split('|')[0]]=1;});
+  if(Object.keys(months).length===1){
+    var d=sorted[0].split('|')[0];
+    return fm(d)+' 第'+sorted.map(function(k){return k.split('|')[1];}).join('・')+'週';
+  }
+  return keys.length+'週合算';
 }
 function setMeta(name,key,val){
   if(!Meta[name])Meta[name]={};
@@ -608,7 +669,27 @@ function paint(){
   document.getElementById('con').innerHTML=banner
     +(tab==='input'?tBun():tab==='table'?tTb():tab==='penalty'?tPenalty():tab==='history'?tHi():tab==='self'?tSelf():tSt());
   bindEvents();
-  if(tab==='input'&&bunStep==='input'){var _sw=document.querySelector('.bun-sheet-wrap');if(_sw)_sw.scrollLeft=_sw.scrollWidth;}
+  if(tab==='input'&&bunStep==='input'){var _sw=document.querySelector('.bun-sheet-wrap');if(_sw)_sw.scrollLeft=_sw.scrollWidth;setupBunNameBar();}
+  else{window.onscroll=null;window.onresize=null;}
+}
+function setupBunNameBar(){
+  var sheet=document.querySelector('.bun-sheet-wrap');
+  var bar=document.getElementById('bun-namebar');
+  var barScroll=document.getElementById('bun-namebar-scroll');
+  if(!sheet||!bar||!barScroll){window.onscroll=null;window.onresize=null;return;}
+  function place(){var r=sheet.getBoundingClientRect();bar.style.left=r.left+'px';bar.style.width=r.width+'px';barScroll.scrollLeft=sheet.scrollLeft;}
+  function vis(){
+    var nr=sheet.querySelector('.bun-name-row');
+    if(!nr){bar.style.display='none';return;}
+    var rect=nr.getBoundingClientRect();
+    var hide=rect.top<(window.innerHeight-4); // 実際の名前行が画面内に入ったら固定バーを隠す
+    if(hide){bar.style.display='none';}
+    else{bar.style.display='block';place();}
+  }
+  sheet.addEventListener('scroll',function(){barScroll.scrollLeft=sheet.scrollLeft;});
+  window.onscroll=vis;
+  window.onresize=vis;
+  vis();
 }
 
 /* ------ bind all dynamic events after innerHTML ------ */
@@ -693,6 +774,12 @@ function bindEvents(){
     el.addEventListener('click',function(){toggleAtt(this.getAttribute('data-att-name'));});
   });
   q('sel-mo',function(el){el.addEventListener('change',function(){mo=this.value;rankExpandName='';paint();});});
+  q('btn-sk-toggle',function(el){el.addEventListener('click',function(){sesOpen=!sesOpen;paint();});});
+  document.querySelectorAll('[data-sk]').forEach(function(el){el.addEventListener('change',function(){
+    var k=this.getAttribute('data-sk');var i=sesSel.indexOf(k);
+    if(this.checked){if(i<0)sesSel.push(k);}else{if(i>=0)sesSel.splice(i,1);}
+    rankExpandName='';paint();
+  });});
   q('sel-fy',function(el){el.addEventListener('change',function(){fYear=this.value;paint();});});
   q('sel-fg',function(el){el.addEventListener('change',function(){fGender=this.value;paint();});});
   q('sel-sk',function(el){el.addEventListener('change',function(){sesKey=this.value;rankExpandName='';paint();});});
@@ -1263,6 +1350,7 @@ function tBun(){
     +'</div>';
 
   var inputArea='';
+  var bunNameBar='';
 
   if(bunViewMode==='table'){
     // ---- 一覧表（既存） ----
@@ -1309,6 +1397,15 @@ function tBun(){
         +'<tbody>'+bodyRows+'</tbody>'
         +'<tfoot>'+nameRow+'</tfoot>'
         +'</table></div>';
+    if(members.length){
+      var barCells=members.map(function(n,ci){
+        return (_tcol[ci]?_vsep:'')+'<td class="bun-name-cell"><span class="bun-vname">'+n+'</span></td>';
+      }).join('')+'<th class="bun-rn-r"></th>';
+      bunNameBar='<div id="bun-namebar" class="bun-namebar" style="display:none">'
+        +'<div id="bun-namebar-scroll" class="bun-namebar-scroll">'
+        +'<table class="bun-table"><tbody><tr class="bun-name-row">'+barCells+'</tr></tbody></table>'
+        +'</div></div>';
+    }
 
   } else {
     // ---- ローテーション表示（一覧表の切り取り） ----
@@ -1406,6 +1503,7 @@ function tBun(){
     +'<div class="row" style="gap:8px;margin-top:12px">'
       +'<button id="btn-bun-save" class="btn prim" style="margin-top:0;width:100%;padding:12px">記録する</button>'
     +'</div></div>'
+    +bunNameBar
     +(bunSaveConfirm
       ?'<div class="modal-ov" id="bun-save-modal"><div class="modal-bx">'
         +'<div style="font-size:17px;font-weight:800;margin-bottom:6px">全員20射引き終わりましたか？</div>'
@@ -1760,7 +1858,6 @@ function filterLabel(){
 }
 function tTb(){
   if(tableView==='indiv')return tIndivDetail();
-  var ss=getSessKeys();if(!sesKey&&ss.length)sesKey=ss[0];
   return '<div class="mtog">'
     +'<button id="btn-mo" class="mt'+(tMode==='monthly'?' on':'')+'">月次集計</button>'
     +'<button id="btn-se" class="mt'+(tMode==='session'?' on':'')+'">週別</button>'
@@ -1784,20 +1881,32 @@ function mMonthly(){
 function mSession(){
   var ss=getSessKeys();
   if(!ss.length)return '<div class="emp">週別のデータがありません</div>';
-  var st=sesKey?getSessStats(sesKey):[];
+  if(sesSel===null)sesSel=[ss[0]];
+  sesSel=sesSel.filter(function(k){return ss.indexOf(k)>=0;});
+  var st=getSessStatsMulti(sesSel);
   var tsh=st.reduce(function(a,m){return a+m.sh;},0),thi=st.reduce(function(a,m){return a+m.hi;},0);
-  var ssOpts='';ss.forEach(function(k){ssOpts+='<option value="'+k+'"'+(sesKey===k?' selected':'')+'>'+fsk(k)+'</option>';});
+  var checks=ss.map(function(k){
+    var on=sesSel.indexOf(k)>=0;
+    return '<label class="wkchk'+(on?' on':'')+'"><input type="checkbox" data-sk="'+k+'"'+(on?' checked':'')+'>'+fsk(k)+'</label>';
+  }).join('');
+  var ddLabel=sesSel.length?sessLabel(sesSel):'週を選択';
+  var dd='<div class="wk-dd">'
+    +'<button id="btn-sk-toggle" class="wk-dd-btn">'+ddLabel+'<span class="wk-dd-ar">'+(sesOpen?'▲':'▼')+'</span></button>'
+    +(sesOpen?'<div class="wk-dd-panel">'+checks+'</div>':'')
+    +'</div>';
+  var body=sesSel.length
+    ?rankCard(st,thi,tsh,sessLabel(sesSel)+filterLabel(),function(name){
+        return S.filter(function(e){return e.mb===name&&sessMatch(e,sesSel);})
+          .slice().sort(function(a,b){return b.id-a.id;});
+      })
+    :'<div class="emp">表示する週にチェックを入れてください</div>';
   return '<div class="row mb10">'
-    +'<select id="sel-sk" class="grow">'+ssOpts+'</select>'
+    +'<div style="flex:1;font-size:11px;color:var(--sub)">週を選択（複数選ぶと合算）</div>'
     +'<button id="btn-csv-se" class="btn bg" style="display:inline-flex;align-items:center;padding:4px 8px"><img src="data:image/png;base64,'+CSV_ICON+'" style="width:28px;height:28px"></button>'
     +'<button id="btn-print-se" class="btn bi" style="display:inline-flex;align-items:center;padding:4px 8px"><img src="data:image/png;base64,'+PRINT_ICON+'" style="width:28px;height:28px"></button></div>'
+    +dd
     +filterRowHTML()
-    +rankCard(st,thi,tsh,(sesKey?fsk(sesKey):'')+filterLabel(),function(name){
-      if(!sesKey)return [];
-      var p=sesKey.split('|');var d=p[0];var si=parseInt(p[1],10);
-      return S.filter(function(e){return e.mb===name&&e.d===d&&recWeek(e)===si;})
-        .slice().sort(function(a,b){return b.id-a.id;});
-    });
+    +body;
 }
 function rankCard(st,thi,tsh,label,getRecords){
   if(!st.length)return '<div class="emp">記録がありません</div>';
@@ -1840,7 +1949,7 @@ function rankCard(st,thi,tsh,label,getRecords){
 function doPrint(type){
   var st,label;
   if(type==='mo'){st=getStats(mo);label=mo==='all'?'通算':fm(mo);}
-  else{st=getSessStats(sesKey);label=fsk(sesKey);}
+  else{st=getSessStatsMulti(sesSel);label=sessLabel(sesSel);}
   var fl=filterLabel();
   var fullLabel=label+(fl?fl:'');
   var tsh=st.reduce(function(a,m){return a+m.sh;},0);
@@ -1931,7 +2040,7 @@ function printRc(r){return r>=0.6?'#2a6536':r>=0.4?'#1a4f7a':r>=0.2?'#8a5e10':'#
 function doCSV(type){
   var st,label;
   if(type==='mo'){st=getStats(mo);label=mo==='all'?'通算':fm(mo);}
-  else{st=getSessStats(sesKey);label=fsk(sesKey);}
+  else{st=getSessStatsMulti(sesSel);label=sessLabel(sesSel);}
   if(fYear!=='all')label+='_'+fYear+'年';
   if(fGender!=='all')label+='_'+fGender;
   var lines=['順位,名前,学年,性別,的中率,的中数,射数'];
@@ -2778,7 +2887,7 @@ function initDragDrop(){
 function doWipeAll(){
   if(!adminMode)return;
   S=[];M=[];Meta={};A={};P=[];Jobs=[];
-  wipeStep=0;fYear='all';fGender='all';mo='all';sesKey='';
+  wipeStep=0;fYear='all';fGender='all';mo='all';sesKey='';sesSel=null;
   _everHadRemoteData=false; // 意図的な全消去なので、空データ送信ブロックを解除
   svS();svM();svA();svP();svJ();
   fl('全データを削除しました');paint();
@@ -2808,7 +2917,7 @@ function doImport(file){
       S=data.S;M=data.M;Meta=data.Meta||{};A=data.A||{};
       initNums();
       var ms=getMo();mo=ms.length?ms[0]:'all';
-      var ss=getSessKeys();sesKey=ss.length?ss[0]:'';
+      var ss=getSessKeys();sesKey=ss.length?ss[0]:'';sesSel=null;
       svS();svM();svA();
       fl('インポートしました（'+S.length+'件・'+M.length+'名）');
       paint();
