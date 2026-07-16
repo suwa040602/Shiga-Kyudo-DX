@@ -229,9 +229,20 @@ function _padCol(arr){var n=bunShotCount();arr=arr||[];while(arr.length<n)arr.pu
 /* ---- ダーティ管理 & 差分プッシュ（PATCH） ---- */
 function markDirty(sec){_dirty[sec]=true;}
 function scheduleDbPush(){if(_loading)return;if(_dbTimer)clearTimeout(_dbTimer);_dbTimer=setTimeout(dbPush,600);}
+/* 送信が実際に成功してから走らせたい処理を積む（例：分附の下書き削除）。
+   失敗した場合はキューに残り、再試行が成功したときに実行される。 */
+var _pushDoneCbs=[];
+function onPushSuccess(cb){_pushDoneCbs.push(cb);}
+function _runPushDoneCbs(){
+  var cbs=_pushDoneCbs;_pushDoneCbs=[];
+  cbs.forEach(function(cb){try{cb();}catch(ex){}});
+}
+/* デバウンスを待たず即送信（保存確定時・アプリ離脱時に使う） */
+function dbPushNow(){if(_dbTimer){clearTimeout(_dbTimer);_dbTimer=null;}dbPush();}
+function pendingCount(){return Object.keys(_dirty).length;}
 function dbPush(){
   var keys=Object.keys(_dirty);
-  if(!keys.length)return;
+  if(!keys.length){if(_pushDoneCbs.length)_runPushDoneCbs();return;}
   // 安全弁：部員数0を送ろうとしている場合は誤操作の疑い
   if((!M||M.length===0)&&_everHadRemoteData){_dot('var(--bad)','同期中止(空データ)');return;}
   var vals={S:S,M:M,Meta:Meta,A:A,P:P,Jobs:Jobs,SP:SP,Pins:Pins,News:News,pin:ADMIN_PIN,shonaiPin:SHONAI_PIN};
@@ -244,6 +255,7 @@ function dbPush(){
     .then(function(r){
       if(!r.ok)throw new Error('http '+r.status);
       _dot('var(--good)','同期済み');
+      _runPushDoneCbs();            // 送信が確定してから後処理（下書き削除など）
     })
     .catch(function(){
       sent.forEach(function(k){_dirty[k]=true;}); // 失敗した分を再ダーティ化
@@ -261,17 +273,20 @@ function dbPushFull(){ // 新規セットアップ時のみ：全体をPUT
 
 /* ---- リモート適用（全体 / 差分） ---- */
 function _applyFields(d){
-  if('S' in d)S=_normList(d.S);
-  if('M' in d)M=_normList(d.M);
-  if('P' in d)P=_normList(d.P);
-  if('Jobs' in d)Jobs=_normList(d.Jobs);
-  if('SP' in d)SP=_normList(d.SP);
-  if('News' in d)News=_normList(d.News);
-  if('Meta' in d)Meta=_normObj(d.Meta);
-  if('A' in d)A=_normObj(d.A);
-  if('Pins' in d)Pins=_normObj(d.Pins);
-  if(d.pin)ADMIN_PIN=d.pin;
-  if(d.shonaiPin)SHONAI_PIN=d.shonaiPin;
+  // 未送信（dirty）のセクションはリモートで上書きしない。
+  // 上書きすると「送信前の変更」が古いリモート値で消えるため。
+  function ok(k){return (k in d)&&!_dirty[k];}
+  if(ok('S'))S=_normList(d.S);
+  if(ok('M'))M=_normList(d.M);
+  if(ok('P'))P=_normList(d.P);
+  if(ok('Jobs'))Jobs=_normList(d.Jobs);
+  if(ok('SP'))SP=_normList(d.SP);
+  if(ok('News'))News=_normList(d.News);
+  if(ok('Meta'))Meta=_normObj(d.Meta);
+  if(ok('A'))A=_normObj(d.A);
+  if(ok('Pins'))Pins=_normObj(d.Pins);
+  if(d.pin&&!_dirty.pin)ADMIN_PIN=d.pin;
+  if(d.shonaiPin&&!_dirty.shonaiPin)SHONAI_PIN=d.shonaiPin;
 }
 function _localKeysFor(d){
   var out=[];['S','M','Meta','A','P','Jobs','SP','Pins','News'].forEach(function(k){if(k in d)out.push(k);});
@@ -357,6 +372,7 @@ function scheduleDbPushDraft(name){
 }
 function dbPushDraft(){ _draftFull=true; _flushDraft(); } // 構造変更などの全体PUT
 function _flushDraft(){
+  if(_draftTimer){clearTimeout(_draftTimer);_draftTimer=null;}
   if(_draftFull){
     _draftFull=false;_draftDirty={};
     fetch(DRAFT_DB+'.json',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(_buildDraftPayload())})
@@ -1083,6 +1099,13 @@ function dispatch(ev,byId,byAttr){
   }
 }
 function initDelegation(){
+  /* アプリが背面に回る瞬間に未送信分を即送信（デバウンス待ちの取りこぼし防止） */
+  document.addEventListener('visibilitychange',function(){
+    if(document.visibilityState==='hidden'){
+      if(pendingCount())dbPushNow();
+      if(_draftTimer)_flushDraft();
+    }
+  });
   document.addEventListener('click',function(ev){dispatch(ev,CLICK_ID,CLICK_ATTR);});
   document.addEventListener('change',function(ev){dispatch(ev,CHANGE_ID,CHANGE_ATTR);});
   document.addEventListener('input',function(ev){dispatch(ev,INPUT_ID,null);});
@@ -1610,8 +1633,13 @@ function doSaveBun(){
     if(sh>0){S.push({id:Date.now()+saved,mb:name,d:bunD,date:bunDate,sh:sh,hi:hi});saved++;}
   });
   if(!saved)return fl('記録がありません',true);
-  svS();fl(saved+'名分の分附を記録しました（'+fm(bunD)+' 第'+bunSess+'週）');
-  dbDeleteDraft();
+  svS();
+  /* 下書きは「本記録の送信が成功してから」削除する。
+     先に消すと、送信前にアプリを閉じられた場合に本記録も下書きも失われる。
+     送信が失敗した場合は下書きが残るので、次に誰かが開けば再開できる。 */
+  onPushSuccess(dbDeleteDraft);
+  dbPushNow();
+  fl(saved+'名分の分附を記録しました（'+fm(bunD)+' 第'+bunSess+'週）');
   bunData={};bunD='';bunSess=0;bunDate='';bunStep='mo-sess';bunOrder=null;bunTate=1;bunTateList=[4];bunViewMode='table';bunRoundPos=0;bunSaveConfirm=false;_draftBannerDismissed=false;bunDraftRemote=null;paint();
 }
 function resetBun(){dbDeleteDraft();bunData={};bunD='';bunSess=0;bunDate='';bunStep='mo-sess';bunOrder=null;bunTate=1;bunTateList=[4];bunViewMode='table';bunRoundPos=0;bunSaveConfirm=false;_draftBannerDismissed=false;bunDraftRemote=null;paint();}
