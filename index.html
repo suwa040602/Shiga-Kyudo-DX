@@ -2976,6 +2976,8 @@ function renderOverlay(){
   var root=document.getElementById('ov-root');if(!root)return;
   if(overlay==='settings'&&!adminMode&&!shonaiMode)overlay='';
   if(!overlay){root.innerHTML='';return;}
+  var _ovBody=root.querySelector('.ov-body');
+  var _ovScrollTop=_ovBody?_ovBody.scrollTop:0;
   var title,body;
   if(overlay==='news'){title='お知らせ';body=tNews();}
   else{title='設定';body=tSettingsPanel();}
@@ -2984,6 +2986,8 @@ function renderOverlay(){
       +'<button id="btn-ov-close" class="ov-close" aria-label="閉じる">✕</button></div>'
     +'<div class="ov-body"><div class="ov-inner">'+body+'</div></div>'
   +'</div></div>';
+  var _ovBody2=root.querySelector('.ov-body');
+  if(_ovBody2)_ovBody2.scrollTop=_ovScrollTop;
 }
 function tSettingsPanel(){
   var head='<div class="card mb10">'
