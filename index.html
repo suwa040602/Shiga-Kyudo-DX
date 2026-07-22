@@ -526,7 +526,7 @@ var sesSel=null,sesOpen=false;
 var fYear='all',fGender='all';
 var form={mb:'',d:CURM,sess:1,sh:'20',hi:''};
 var editId=null,editForm={};
-var pDel=null,pReset=false,attOpen=false,indivMb='',tableView='rank',indivMoView='table',indivWkView='table';
+var pDel=null,pReset=false,attOpen=false,indivMb='',tableView='rank',indivMoView='table',indivWkView='table',indivView='official';
 var rankExpandName='';
 var mergeMode=false,mergeSel=[],mergeConfirm=false,mergeForm={d:'',sess:0,sh:0,hi:0,mb:''};
 /* ---- 自主練 / マイページ ---- */
@@ -951,6 +951,8 @@ var CLICK_ID={
   'btn-mo':function(){tMode='monthly';rankExpandName='';paint();},
   'btn-se':function(){tMode='session';rankExpandName='';paint();},
   'btn-indiv-back':function(){tableView='rank';paint();},
+  'btn-indiv-official':function(){indivView='official';paint();},
+  'btn-indiv-analysis':function(){indivView='analysis';paint();},
   'btn-mo-table':function(){indivMoView='table';paint();},
   'btn-mo-chart':function(){indivMoView='chart';paint();},
   'btn-wk-table':function(){indivWkView='table';paint();},
@@ -1006,7 +1008,7 @@ var CHANGE_ID={
   'sel-fy':function(el){fYear=el.value;paint();},
   'sel-fg':function(el){fGender=el.value;paint();},
   'sel-sk':function(el){sesKey=el.value;rankExpandName='';paint();},
-  'sel-indiv':function(el){indivMb=el.value;indivMoView='table';indivWkView='table';paint();},
+  'sel-indiv':function(el){indivMb=el.value;indivMoView='table';indivWkView='table';indivView='official';paint();},
   'sel-hmb':function(el){histMb=el.value;paint();},
   'self-name':function(el){selfLoginName=el.value;paint();},
   'job-self-mb':function(el){jobSelfMb=el.value;paint();},
@@ -1042,7 +1044,7 @@ var CLICK_ATTR=[
   ['data-att-toggle',function(){attOpen=!attOpen;paint();}],
   ['data-att-name',function(el){toggleAtt(el.getAttribute('data-att-name'));}],
   ['data-ach-key',function(el){toggleAchievement(el.getAttribute('data-ach-name'),el.getAttribute('data-ach-key'));}],
-  ['data-indiv-name',function(el){indivMb=el.getAttribute('data-indiv-name');tableView='indiv';indivMoView='table';indivWkView='table';paint();}],
+  ['data-indiv-name',function(el){indivMb=el.getAttribute('data-indiv-name');tableView='indiv';indivMoView='table';indivWkView='table';indivView='official';paint();}],
   ['data-rank-expand',function(el){var name=el.getAttribute('data-rank-expand');rankExpandName=(rankExpandName===name)?'':name;paint();}],
   ['data-edit-id',function(el){if(!canEditHistory())return;var id=parseInt(el.getAttribute('data-edit-id'),10);var rec=S.find(function(x){return x.id===id;})||{};editId=id;editForm=rec.date?{date:rec.date,sh:rec.sh,hi:rec.hi}:{d:rec.d,sess:rec.sess,sh:rec.sh,hi:rec.hi};pDel=null;paint();}],
   ['data-edit-cancel',function(){editId=null;paint();}],
@@ -1630,7 +1632,18 @@ function doSaveBun(){
     var shots=bunData[name]||[];
     var sh=shots.filter(function(s){return s!==null;}).length;
     var hi=shots.filter(function(s){return s===true;}).length;
-    if(sh>0){S.push({id:Date.now()+saved,mb:name,d:bunD,date:bunDate,sh:sh,hi:hi});saved++;}
+    if(sh>0){
+      // 射の内訳（記録済みの矢のみ）を '1'=中 / '0'=外 の文字列で保存
+      var seq=shots.filter(function(s){return s!==null;}).map(function(s){return s===true?'1':'0';}).join('');
+      // 4射ずつのセットで、1立ち全射中（皆中）があるか判定
+      var kaichu=false;
+      for(var i=0;i+4<=shots.length;i+=4){
+        if(shots.slice(i,i+4).every(function(s){return s===true;})){kaichu=true;break;}
+      }
+      var rec={id:Date.now()+saved,mb:name,d:bunD,date:bunDate,sh:sh,hi:hi,seq:seq};
+      if(kaichu)rec.kaichu=true;
+      S.push(rec);saved++;
+    }
   });
   if(!saved)return fl('記録がありません',true);
   svS();
@@ -2216,6 +2229,17 @@ function indivWeekly(name){
     return{key:k,month:d,sess:si,sh:sh,hi:hi,rate:sh?hi/sh:0};
   });
 }
+function recHasKaichu(e){
+  // 内訳(seq)があれば4射ずつ区切って全射中の立ちを探す（遡及的に正確）
+  if(typeof e.seq==='string'&&e.seq.length>=4){
+    for(var i=0;i+4<=e.seq.length;i+=4){
+      if(e.seq.substr(i,4)==='1111')return true;
+    }
+    return e.kaichu===true; // 端数立ちのフラグ救済
+  }
+  // 内訳なし：保存済みフラグ or 4射4中レコードで代替
+  return e.kaichu===true||(e.sh===4&&e.hi===4);
+}
 function getAchievements(name){
   var entries=S.filter(function(e){return e.mb===name;});
   var manual=(Meta[name]&&Meta[name].ach)||{};
@@ -2226,7 +2250,7 @@ function getAchievements(name){
   }
   return{
     firstHit:    chk('firstHit',    function(){return entries.some(function(e){return e.hi>0;});}),
-    firstPerfect:chk('firstPerfect',function(){return entries.some(function(e){return e.sh===4&&e.hi===4;});}),
+    firstPerfect:chk('firstPerfect',function(){return entries.some(recHasKaichu);}),
     firstHalf:   chk('firstHalf',   function(){return entries.some(function(e){return e.sh===20&&e.hi>=10;});}),
     firstBlue:   chk('firstBlue',   function(){return entries.some(function(e){return e.sh===20&&e.hi>=14;});}),
     firstRed:    chk('firstRed',    function(){return entries.some(function(e){return e.sh===20&&e.hi>=18;});}),
@@ -2414,6 +2438,83 @@ function personOfficialView(name){
     +'<p style="font-size:12px;font-weight:700;color:var(--sub);margin:10px 0 6px">週別詳細</p>'
     +wkToggle+wkContent;
 }
+/* ======= 射癖分析（内訳seqを持つ記録のみ集計） ======= */
+function indivShotAnalysis(name){
+  var recs=S.filter(function(e){return e.mb===name&&typeof e.seq==='string'&&e.seq.length>=4;});
+  var posHit=[0,0,0,0],posSh=[0,0,0,0];   // 立ち内の位置（1〜4本目）
+  var tachiHit=[0,0,0,0,0],tachiSh=[0,0,0,0,0]; // 立ち順（1〜5立ち目）
+  var kaichuCount=0,tachiTotal=0,maxStreak=0;
+  recs.forEach(function(e){
+    var seq=e.seq;
+    // 連中（記録全体を通した最長連続中）
+    var cur=0;
+    for(var c=0;c<seq.length;c++){if(seq[c]==='1'){cur++;if(cur>maxStreak)maxStreak=cur;}else cur=0;}
+    // 4射ずつの立ち単位で集計
+    for(var t=0;t*4<seq.length;t++){
+      var set=seq.substr(t*4,4);
+      if(set.length<4)break; // 端数の立ちは位置別集計から除外
+      tachiTotal++;
+      var setHit=0;
+      for(var p=0;p<4;p++){
+        posSh[p]++;
+        if(set[p]==='1'){posHit[p]++;setHit++;}
+      }
+      if(t<5){tachiSh[t]+=4;tachiHit[t]+=setHit;}
+      if(setHit===4)kaichuCount++;
+    }
+  });
+  return{recCount:recs.length,tachiTotal:tachiTotal,kaichuCount:kaichuCount,maxStreak:maxStreak,
+    posHit:posHit,posSh:posSh,tachiHit:tachiHit,tachiSh:tachiSh};
+}
+function analysisBar(hit,sh){
+  var r=sh?hit/sh:0;
+  var pct=(r*100).toFixed(1);
+  return '<div style="flex:1;height:16px;background:var(--sec);border-radius:8px;overflow:hidden;position:relative">'
+      +'<div style="height:100%;width:'+(r*100)+'%;background:'+rc(r)+';border-radius:8px"></div>'
+    +'</div>'
+    +'<span style="width:56px;text-align:right;font-size:12px;color:'+rc(r)+';font-weight:700">'+(sh?pct+'%':'—')+'</span>'
+    +'<span style="width:42px;text-align:right;font-size:11px;color:var(--sub)" class="mono">'+hit+'/'+sh+'</span>';
+}
+function personAnalysisView(name){
+  var a=indivShotAnalysis(name);
+  if(!a.recCount){
+    return '<div class="emp" style="padding:20px 0;font-size:12.5px">射ごとの内訳がある記録がまだありません。<br>今後の分附記録から自動で分析されます。</div>';
+  }
+  // サマリ
+  var summary='<div style="display:flex;gap:8px;margin-bottom:12px">'
+    +'<div style="flex:1;background:var(--sf);border:1px solid var(--ln);border-radius:11px;padding:10px 8px;text-align:center">'
+      +'<div style="font-size:20px;font-weight:800;color:var(--acc)">'+a.kaichuCount+'</div>'
+      +'<div style="font-size:10.5px;color:var(--sub);margin-top:2px">皆中（立）</div></div>'
+    +'<div style="flex:1;background:var(--sf);border:1px solid var(--ln);border-radius:11px;padding:10px 8px;text-align:center">'
+      +'<div style="font-size:20px;font-weight:800;color:var(--info)">'+a.maxStreak+'</div>'
+      +'<div style="font-size:10.5px;color:var(--sub);margin-top:2px">最長連中</div></div>'
+    +'<div style="flex:1;background:var(--sf);border:1px solid var(--ln);border-radius:11px;padding:10px 8px;text-align:center">'
+      +'<div style="font-size:20px;font-weight:800;color:var(--ink)">'+a.tachiTotal+'</div>'
+      +'<div style="font-size:10.5px;color:var(--sub);margin-top:2px">総立数</div></div>'
+    +'</div>';
+  // 立ち内の位置別（1〜4本目）
+  var posRows='';
+  ['1本目','2本目','3本目','4本目'].forEach(function(lbl,i){
+    posRows+='<div style="display:flex;align-items:center;gap:8px;margin:5px 0">'
+      +'<span style="width:44px;font-size:12px;color:var(--sub)">'+lbl+'</span>'
+      +analysisBar(a.posHit[i],a.posSh[i])+'</div>';
+  });
+  // 立ち順別（1〜5立ち目）
+  var tRows='';
+  for(var t=0;t<5;t++){
+    if(!a.tachiSh[t])continue;
+    tRows+='<div style="display:flex;align-items:center;gap:8px;margin:5px 0">'
+      +'<span style="width:44px;font-size:12px;color:var(--sub)">'+(t+1)+'立目</span>'
+      +analysisBar(a.tachiHit[t],a.tachiSh[t])+'</div>';
+  }
+  return summary
+    +'<p style="font-size:12px;font-weight:700;color:var(--sub);margin:0 0 4px">立ち内の位置別 的中率</p>'
+    +'<div style="font-size:10.5px;color:var(--faint);margin-bottom:6px">4射のうち何本目かで見た的中率（射込みの傾向）</div>'
+    +'<div style="background:var(--sf);border:1px solid var(--ln);border-radius:13px;padding:12px 14px">'+posRows+'</div>'
+    +'<p style="font-size:12px;font-weight:700;color:var(--sub);margin:12px 0 4px">立ち順別 的中率</p>'
+    +'<div style="font-size:10.5px;color:var(--faint);margin-bottom:6px">1立目〜5立目で見た的中率（集中力の推移）</div>'
+    +'<div style="background:var(--sf);border:1px solid var(--ln);border-radius:13px;padding:12px 14px">'+tRows+'</div>';
+}
 /* 成績表タブ内：他部員も見られる個人ページ（閲覧専用） */
 function tIndivDetail(){
   var sorted=membersSorted();
@@ -2429,7 +2530,11 @@ function tIndivDetail(){
     +'<select id="sel-indiv" style="flex:1;padding:9px 11px;font-size:14px;border:1px solid var(--ln2);border-radius:9px;background:var(--sf);color:var(--ink);font-family:inherit;outline:none">'+mbOpts+'</select>'
     +'</div>'
     +personProfileCard(name)
-    +personOfficialView(name);
+    +'<div class="tb" style="margin-bottom:10px">'
+      +'<button id="btn-indiv-official" class="t'+(indivView==='official'?' on':'')+'">成績</button>'
+      +'<button id="btn-indiv-analysis" class="t'+(indivView==='analysis'?' on':'')+'">射癖分析</button>'
+    +'</div>'
+    +(indivView==='analysis'?personAnalysisView(name):personOfficialView(name));
 }
 /* ======= HISTORY ======= */
 function tHi(){
@@ -2580,6 +2685,11 @@ function doEditSave(id){
     if(!mo||!se)return;
     e.d=mo.value;e.sess=parseInt(se.value,10);delete e.date;
   }
+  // 編集後の射数・的中が内訳(seq)と食い違う場合は内訳を破棄
+  if(typeof e.seq==='string'){
+    var seqHit=(e.seq.match(/1/g)||[]).length;
+    if(e.seq.length!==nsh||seqHit!==nhi)delete e.seq;
+  }
   e.sh=nsh;e.hi=nhi;
   editId=null;svS();fl('記録を更新しました');paint();
 }
@@ -2621,7 +2731,14 @@ function doMerge(){
   if(nhi>nsh){fl('的中数は射数以下にしてください',true);return;}
   var sels=S.filter(function(x){return mergeSel.indexOf(x.id)>=0;}).sort(function(a,b){return a.id-b.id;});
   var base=sels[0],n=sels.length;
+  var anyKaichu=sels.some(recHasKaichu);
+  // 内訳(seq)の連結：全件がseqを持ち、連結後の長さが編集後の射数と一致する時のみ保持
+  var allSeq=sels.every(function(x){return typeof x.seq==='string';});
+  var mergedSeq=allSeq?sels.map(function(x){return x.seq;}).join(''):'';
   base.date=nd;base.d=nd.slice(0,7);delete base.sess;base.sh=nsh;base.hi=nhi;
+  if(allSeq&&mergedSeq.length===nsh){base.seq=mergedSeq;}
+  else{delete base.seq;} // 内訳が不整合になる場合は破棄（フラグで皆中は担保）
+  if(anyKaichu)base.kaichu=true;
   var removeIds=mergeSel.filter(function(id){return id!==base.id;});
   S=S.filter(function(x){return removeIds.indexOf(x.id)<0;});
   mergeSel=[];mergeConfirm=false;mergeMode=false;
