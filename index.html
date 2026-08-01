@@ -544,11 +544,11 @@ var bunViewMode='table',bunRoundPos=0,bunSaveConfirm=false,bunReorderMode=false,
 var SEED_NUMS={'赤嶺':1,'小西':2,'諏訪園':3,'永田':4,'苗代':5,'廣中':6,'藤田圭':7,'丸崎':8,'辻':9,'西野':10,'藤田真':11,'鈴木':12,'服部':13,'濱野':14,'藤田悠':15,'柳澤':16,'油谷':17,'久田':18,'平井':19,'藤井':20,'藤本':21,'松野':22,'松本':23,'岡田':24,'佐野':25,'美藤':26,'川畑':27,'近藤':28,'徳久':29,'大橋':30,'大川':31};
 
 function initNums(){
-  // Excelの通し番号をシードメンバーに適用（常に上書きして正しい値に修正）
+  // Excelの通し番号をシードメンバーに適用（numが未設定の場合のみ。既存値は並べ替え結果として尊重し上書きしない）
   Object.keys(SEED_NUMS).forEach(function(name){
     if(M.indexOf(name)<0)return;
     if(!Meta[name])Meta[name]={};
-    Meta[name].num=SEED_NUMS[name]||Meta[name].num||99;
+    if(!Meta[name].num)Meta[name].num=SEED_NUMS[name]||99;
   });
   // シード外の部員は番号未設定なら末尾に配置
   M.forEach(function(name){
