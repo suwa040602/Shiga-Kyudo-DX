@@ -193,6 +193,7 @@ var DRAFT_DB='https://shiga-kyudo-dx-default-rtdb.asia-southeast1.firebasedataba
 var CLIENT_ID='c'+Date.now().toString(36)+Math.random().toString(36).slice(2,8);
 var _loading=true,_everHadRemoteData=false,_lastKnownRemoteTs=0;
 var _dbTimer=null,_dirty={};               // セクション単位のダーティ集合
+var _inflight={};                          // 送信済み・応答待ちのセクション（リモート上書きから保護）
 var _draftTimer=null,_draftDirty={},_draftFull=false; // 下書き：列単位/構造変更
 var _draftBannerDismissed=false,bunDraftRemote=null;
 
@@ -250,15 +251,19 @@ function dbPush(){
   keys.forEach(function(k){if(k in vals)body[k]=vals[k];});
   var sent=keys.slice();
   _dirty={};                     // 送信予定分はクリア（失敗時に戻す）
+  // 応答が返るまでは「送信中」として保護する。ここを空にしてしまうと、
+  // 送信中に走ったdbPullが古いリモート値でローカルを上書きし、変更が消える。
+  sent.forEach(function(k){_inflight[k]=true;});
   _dot('var(--warn)','同期中...');
   fetch(DB+'.json',{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
     .then(function(r){
       if(!r.ok)throw new Error('http '+r.status);
+      sent.forEach(function(k){delete _inflight[k];});
       _dot('var(--good)','同期済み');
       _runPushDoneCbs();            // 送信が確定してから後処理（下書き削除など）
     })
     .catch(function(){
-      sent.forEach(function(k){_dirty[k]=true;}); // 失敗した分を再ダーティ化
+      sent.forEach(function(k){delete _inflight[k];_dirty[k]=true;}); // 失敗した分を再ダーティ化
       _dot('var(--bad)','同期エラー(再試行します)');
       if(!_dbTimer)_dbTimer=setTimeout(dbPush,4000);
     });
@@ -275,7 +280,7 @@ function dbPushFull(){ // 新規セットアップ時のみ：全体をPUT
 function _applyFields(d){
   // 未送信（dirty）のセクションはリモートで上書きしない。
   // 上書きすると「送信前の変更」が古いリモート値で消えるため。
-  function ok(k){return (k in d)&&!_dirty[k];}
+  function ok(k){return (k in d)&&!_dirty[k]&&!_inflight[k];}
   if(ok('S'))S=_normList(d.S);
   if(ok('M'))M=_normList(d.M);
   if(ok('P'))P=_normList(d.P);
@@ -285,8 +290,10 @@ function _applyFields(d){
   if(ok('Meta'))Meta=_normObj(d.Meta);
   if(ok('A'))A=_normObj(d.A);
   if(ok('Pins'))Pins=_normObj(d.Pins);
-  if(d.pin&&!_dirty.pin)ADMIN_PIN=d.pin;
-  if(d.shonaiPin&&!_dirty.shonaiPin)SHONAI_PIN=d.shonaiPin;
+  if(d.pin&&!_dirty.pin&&!_inflight.pin)ADMIN_PIN=d.pin;
+  if(d.shonaiPin&&!_dirty.shonaiPin&&!_inflight.shonaiPin)SHONAI_PIN=d.shonaiPin;
+  // リモート反映後に番号未設定の部員が出ることがあるので補完（既存の番号は上書きしない）
+  if(('M' in d)||('Meta' in d))initNums();
 }
 function _localKeysFor(d){
   var out=[];['S','M','Meta','A','P','Jobs','SP','Pins','News'].forEach(function(k){if(k in d)out.push(k);});
@@ -534,7 +541,7 @@ var SP=[],KSP='kyudo_sp_v1';
 var Pins={},KPINS='kyudo_pins_v1';
 var myMb='',KME='kyudo_me_v1';
 var selfSub='self',selfPracSub='input',selfForm={date:'',sh:'20',hi:''},selfMarks=[];
-var selfWkKey=null;
+var selfMoKey=null;
 var selfLoginName='',selfSetMode=false;
 function pinHash(s){var h=5381;s=''+s;for(var i=0;i<s.length;i++){h=((h<<5)+h+s.charCodeAt(i))|0;}return 'h'+(h>>>0);}
 var bunD='',bunSess=0,bunDate='',bunData={},bunOrder=null,_bunDrag=null;
@@ -1004,7 +1011,7 @@ var CHANGE_ID={
   'bun-date':function(el){bunDate=el.value;paint();},
   'bun-tate':function(el){var n=+el.value;var prev=bunTateList[bunTateList.length-1]||4;while(bunTateList.length<n)bunTateList.push(prev);bunTateList.length=n;bunTate=n;paint();},
   'sel-mo':function(el){mo=el.value;rankExpandName='';paint();},
-  'sel-self-wk':function(el){selfWkKey=el.value;paint();},
+  'sel-self-wk':function(el){selfMoKey=el.value;paint();},
   'sel-fy':function(el){fYear=el.value;paint();},
   'sel-fg':function(el){fGender=el.value;paint();},
   'sel-sk':function(el){sesKey=el.value;rankExpandName='';paint();},
@@ -2764,16 +2771,16 @@ function selfMonthly(name){
     var o=mp[m];o.rate=o.sh?o.hi/o.sh:0;return o;
   });
 }
-function getSelfWkKeys(){
+function getSelfMoKeys(){
   var seen={};
-  SP.forEach(function(e){var w=recWeek(e);if(w>0)seen[(e.date||'').slice(0,7)+'|'+w]=1;});
+  SP.forEach(function(e){var m=(e.date||'').slice(0,7);if(m)seen[m]=1;});
   return Object.keys(seen).sort(function(a,b){return b.localeCompare(a);});
 }
-function selfWkMatch(e,key){var p=key.split('|');return (e.date||'').slice(0,7)===p[0]&&recWeek(e)===parseInt(p[1],10);}
-/* 指定週（'all'/nullは全期間）の部員ごと集計マップ */
-function selfWkAgg(key){
+function selfMoMatch(e,key){return (e.date||'').slice(0,7)===key;}
+/* 指定月（'all'/nullは全期間）の部員ごと集計マップ */
+function selfMoAgg(key){
   var mp={};
-  var src=(!key||key==='all')?SP:SP.filter(function(e){return selfWkMatch(e,key);});
+  var src=(!key||key==='all')?SP:SP.filter(function(e){return selfMoMatch(e,key);});
   src.forEach(function(e){
     if(!mp[e.mb])mp[e.mb]={name:e.mb,sh:0,hi:0};
     mp[e.mb].sh+=e.sh;mp[e.mb].hi+=e.hi;
@@ -2781,7 +2788,7 @@ function selfWkAgg(key){
   return mp;
 }
 function selfRank(){
-  var mp=selfWkAgg(selfWkKey);
+  var mp=selfMoAgg(selfMoKey);
   var arr=Object.values(mp);
   arr.sort(function(a,b){return b.sh-a.sh;});
   var rank=1,res=[];
@@ -2981,20 +2988,20 @@ function selfPracticeView(name){
   return out;
 }
 function selfRankView(){
-  var wks=getSelfWkKeys();
-  // 未選択（初回表示）は最新週をデフォルトに
-  if(selfWkKey===null)selfWkKey=wks.length?wks[0]:'all';
-  if(selfWkKey!=='all'&&wks.indexOf(selfWkKey)<0)selfWkKey=wks.length?wks[0]:'all';
-  var wkOpts='<option value="all"'+(selfWkKey==='all'?' selected':'')+'>全期間（通算）</option>'
-    +wks.map(function(k){return '<option value="'+k+'"'+(selfWkKey===k?' selected':'')+'>'+fsk(k)+'</option>';}).join('');
+  var wks=getSelfMoKeys();
+  // 未選択（初回表示）は最新月をデフォルトに
+  if(selfMoKey===null)selfMoKey=wks.length?wks[0]:'all';
+  if(selfMoKey!=='all'&&wks.indexOf(selfMoKey)<0)selfMoKey=wks.length?wks[0]:'all';
+  var wkOpts='<option value="all"'+(selfMoKey==='all'?' selected':'')+'>全期間（通算）</option>'
+    +wks.map(function(k){return '<option value="'+k+'"'+(selfMoKey===k?' selected':'')+'>'+fm(k)+'</option>';}).join('');
   var out='<div class="row mb10">'
     +'<select id="sel-self-wk" class="grow">'+wkOpts+'</select></div>';
   var rk=selfRank();
-  if(!rk.length){out+='<div class="emp">'+(selfWkKey==='all'?'まだ自主練の記録がありません':'この週の記録がありません')+'</div>';return out;}
-  // 先週（記録のある1つ前の週）との射数比較
-  var idx=wks.indexOf(selfWkKey);
-  var prevKey=(selfWkKey!=='all'&&idx>=0&&idx+1<wks.length)?wks[idx+1]:null;
-  var prev=prevKey?selfWkAgg(prevKey):null;
+  if(!rk.length){out+='<div class="emp">'+(selfMoKey==='all'?'まだ自主練の記録がありません':'この月の記録がありません')+'</div>';return out;}
+  // 先月（記録のある1つ前の月）との射数比較
+  var idx=wks.indexOf(selfMoKey);
+  var prevKey=(selfMoKey!=='all'&&idx>=0&&idx+1<wks.length)?wks[idx+1]:null;
+  var prev=prevKey?selfMoAgg(prevKey):null;
   out+='<div class="card">';
   rk.forEach(function(m){
     var mine=m.name===myMb;
@@ -3010,7 +3017,7 @@ function selfRankView(){
       +'<div style="text-align:right"><span style="font-weight:700;color:var(--ink)">'+m.sh+'射</span>'+diff+'</div></div>';
   });
   out+='</div>';
-  if(prevKey)out+='<p style="font-size:11px;color:var(--faint);margin-top:8px">※増減は '+fsk(prevKey)+' との射数比較です。</p>';
+  if(prevKey)out+='<p style="font-size:11px;color:var(--faint);margin-top:8px">※増減は '+fm(prevKey)+' との射数比較です。</p>';
   return out;
 }
 
@@ -3257,7 +3264,7 @@ function initDragDrop(){
 function doWipeAll(){
   if(!adminMode)return;
   S=[];M=[];Meta={};A={};P=[];Jobs=[];
-  wipeStep=0;fYear='all';fGender='all';mo='all';sesKey='';sesSel=null;selfWkKey=null;
+  wipeStep=0;fYear='all';fGender='all';mo='all';sesKey='';sesSel=null;selfMoKey=null;
   _everHadRemoteData=false; // 意図的な全消去なので、空データ送信ブロックを解除
   svS();svM();svA();svP();svJ();
   fl('全データを削除しました');paint();
