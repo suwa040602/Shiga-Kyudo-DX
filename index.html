@@ -9,6 +9,15 @@
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 body{margin:0;background:var(--bg);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"Hiragino Kaku Gothic ProN","Hiragino Sans","Noto Sans JP","Yu Gothic",sans-serif;font-size:14px;line-height:1.6;-webkit-text-size-adjust:100%}
 .w{max-width:480px;margin:0 auto;padding:18px 16px 56px}
+/* 横向き＋分附入力中のみ：480px制限を外して画面幅いっぱいに使う。
+   横画面は高さが乏しいので、ヘッダーとタブも畳んで縦を稼ぐ。 */
+@media (orientation:landscape){
+  body.bun-land .w{max-width:none;padding:8px 10px 20px}
+  body.bun-land .hd{display:none}
+  body.bun-land .tb{display:none}
+  body.bun-land .card{padding:10px 12px}
+  body.bun-land .bun-sheet-wrap{margin:6px 0}
+}
 .hd{display:flex;align-items:center;gap:11px;padding-bottom:14px;margin-bottom:14px;border-bottom:1px solid var(--ln)}
 .mk{width:40px;height:40px;flex:none;object-fit:contain}
 h1{margin:0;font-size:17px;font-weight:700}
@@ -891,7 +900,9 @@ function paint(){
   bindDynamic();
   var _wkScroll2=document.getElementById('wk-modal-scroll');
   if(_wkScroll2)_wkScroll2.scrollTop=_wkScrollTop;
-  if(tab==='input'&&bunStep==='input'){var _sw=document.querySelector('.bun-sheet-wrap');if(_sw)_sw.scrollLeft=_sw.scrollWidth;setupBunNameBar();}
+  var _bunInput=(tab==='input'&&bunStep==='input');
+  document.body.classList.toggle('bun-land',_bunInput);
+  if(_bunInput){var _sw=document.querySelector('.bun-sheet-wrap');if(_sw)_sw.scrollLeft=_sw.scrollWidth;setupBunNameBar();}
   else{window.onscroll=null;window.onresize=null;}
 }
 function setupBunNameBar(){
@@ -909,8 +920,20 @@ function setupBunNameBar(){
     else{bar.style.display='block';place();}
   }
   sheet.addEventListener('scroll',function(){barScroll.scrollLeft=sheet.scrollLeft;});
+  // 回転判定用。モバイルではURLバーの開閉でもresizeが飛ぶため、
+  // 「向きが変わったとき」だけスクロール位置を戻す（操作中に勝手に動かさない）。
+  var _wasLand=window.innerWidth>window.innerHeight;
   window.onscroll=vis;
-  window.onresize=vis;
+  window.onresize=function(){
+    vis();
+    var land=window.innerWidth>window.innerHeight;
+    if(land!==_wasLand){
+      _wasLand=land;
+      // はみ出す場合のみ1の立側（右端）へ寄せ直す
+      if(sheet.scrollWidth>sheet.clientWidth+2)sheet.scrollLeft=sheet.scrollWidth;
+      place();
+    }
+  };
   vis();
 }
 
