@@ -906,9 +906,49 @@ function paint(){
   if(_wkScroll2)_wkScroll2.scrollTop=_wkScrollTop;
   var _bunInput=(tab==='input'&&bunStep==='input');
   document.body.classList.toggle('bun-land',_bunInput);
-  if(_bunInput){var _sw=document.querySelector('.bun-sheet-wrap');if(_sw)_sw.scrollLeft=_sw.scrollWidth;setupBunNameBar();}
+  if(_bunInput){var _sw=document.querySelector('.bun-sheet-wrap');if(_sw)_sw.scrollLeft=_sw.scrollWidth;initBunTapFix();setupBunNameBar();}
   else{window.onscroll=null;window.onresize=null;}
 }
+/* ---- iOS Safari のダブルタップズーム対策 ----
+   ✗ を入れるには同じセルを素早く2回叩く必要があるが、Safari は touch-action:manipulation
+   だけではダブルタップ拡大を止めない（WebKit独自のジェスチャ判定が先に走る）。
+   そこで touchend を自前で処理し preventDefault() する。これで拡大も合成clickも止まる。
+   ・指が動いた場合(=スクロール)は何もしない
+   ・2本指(ピンチ)は対象外なので拡大は従来どおり可能 */
+var _bunTapAt=0;
+function initBunTapFix(){
+  var wrap=document.querySelector('.bun-sheet-wrap');
+  if(!wrap||wrap._tapFix)return;
+  wrap._tapFix=true;
+  var sx=0,sy=0,moved=false,tgt=null,multi=false;
+  function cellOf(el){
+    while(el&&el!==wrap){
+      if(el.getAttribute&&el.getAttribute('data-bun-idx')!==null)return el;
+      el=el.parentNode;
+    }
+    return null;
+  }
+  wrap.addEventListener('touchstart',function(e){
+    if(e.touches.length>1){multi=true;tgt=null;return;}
+    multi=false;moved=false;
+    tgt=cellOf(e.target);
+    sx=e.touches[0].clientX;sy=e.touches[0].clientY;
+  },{passive:true});
+  wrap.addEventListener('touchmove',function(e){
+    if(!tgt||multi)return;
+    var t=e.touches[0];
+    if(Math.abs(t.clientX-sx)>10||Math.abs(t.clientY-sy)>10)moved=true;
+  },{passive:true});
+  wrap.addEventListener('touchend',function(e){
+    if(multi||!tgt||moved){tgt=null;return;}
+    var el=tgt;tgt=null;
+    e.preventDefault();               // ダブルタップ拡大と合成clickを抑止
+    _bunTapAt=Date.now();
+    toggleBunShot(el.getAttribute('data-bun-name'),parseInt(el.getAttribute('data-bun-idx'),10));
+  },{passive:false});
+  wrap.addEventListener('touchcancel',function(){tgt=null;},{passive:true});
+}
+
 function setupBunNameBar(){
   var sheet=document.querySelector('.bun-sheet-wrap');
   var bar=document.getElementById('bun-namebar');
@@ -1077,7 +1117,11 @@ var KEY_ID={
 /* [属性名, ハンドラ(el,ev)]。data-pen-del は data-pen-mb より前（内側優先） */
 var CLICK_ATTR=[
   ['data-tab',function(el){sw(el.getAttribute('data-tab'));}],
-  ['data-bun-idx',function(el){toggleBunShot(el.getAttribute('data-bun-name'),parseInt(el.getAttribute('data-bun-idx'),10));}],
+  ['data-bun-idx',function(el){
+    // touchendで処理済みの直後に合成clickが来ることがあるので二重反転を防ぐ
+    if(Date.now()-_bunTapAt<700)return;
+    toggleBunShot(el.getAttribute('data-bun-name'),parseInt(el.getAttribute('data-bun-idx'),10));
+  }],
   ['data-att-toggle',function(){attOpen=!attOpen;paint();}],
   ['data-att-name',function(el){toggleAtt(el.getAttribute('data-att-name'));}],
   ['data-ach-key',function(el){toggleAchievement(el.getAttribute('data-ach-name'),el.getAttribute('data-ach-key'));}],
