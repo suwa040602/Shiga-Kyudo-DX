@@ -336,9 +336,12 @@ function hasBunInput(){
 function _repaintUnlessBun(){if(!(tab==='input'&&hasBunInput()))paint();}
 
 /* ---- リアルタイム購読（put=全体 / patch=差分） ---- */
+var _es=null;
 function dbListen(){
   try{
+    if(_es){try{_es.close();}catch(ex){}_es=null;}
     var src=new EventSource(DB+'.json');
+    _es=src;
     src.addEventListener('put',function(e){
       try{
         var p=JSON.parse(e.data);var path=p&&p.path;var d=p&&p.data;
@@ -1113,7 +1116,17 @@ function initDelegation(){
     if(document.visibilityState==='hidden'){
       if(pendingCount())dbPushNow();
       if(_draftTimer)_flushDraft();
+      return;
     }
+    /* 復帰時：バックグラウンド中は購読(EventSource)が切れていることがあり、
+       そのまま操作すると「古い手元のデータ」を送って他端末の変更（部員追加など）を
+       消してしまう。まず未送信分を送り、購読を張り直して最新を取り直す。
+       未送信・送信中のセクションは _applyFields が保護するので上書きされない。 */
+    if(_loading)return;
+    if(pendingCount())dbPushNow();
+    if(!_es||_es.readyState===2){dbListen();dbListenDraft();}
+    dbPull(_repaintUnlessBun);
+    dbPullDraft(function(){_repaintUnlessBun();});
   });
   document.addEventListener('click',function(ev){dispatch(ev,CLICK_ID,CLICK_ATTR);});
   document.addEventListener('change',function(ev){dispatch(ev,CHANGE_ID,CHANGE_ATTR);});
@@ -3221,7 +3234,12 @@ function tSt(){
 function doAdd(){
   var el=document.getElementById('inp-nm');if(!el)return;
   var n=el.value.trim();if(!n||M.indexOf(n)>=0)return;
-  M.push(n);svM();fl(n+'さんを追加しました');paint();
+  M.push(n);
+  // 番号未設定だと並び順が不定になり「見当たらない」状態になるため、末尾の番号を振る
+  var mx=0;M.forEach(function(m){var v=(Meta[m]||{}).num;if(v&&v<9000&&v>mx)mx=v;});
+  if(!Meta[n])Meta[n]={};
+  Meta[n].num=mx+1;
+  svM();fl(n+'さんを追加しました');paint();
 }
 function doRem(n){M=M.filter(function(m){return m!==n;});delete Meta[n];svM();paint();}
 function reorderMember(srcName,tgtName){
