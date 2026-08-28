@@ -3360,8 +3360,21 @@ function applySeedOrder(){
     : '名簿順に振り直しました');
 }
 function doAdd(){
-  var el=document.getElementById('inp-nm');if(!el)return;
-  var n=el.value.trim();if(!n||M.indexOf(n)>=0)return;
+  var el=document.getElementById('inp-nm');
+  if(!el)return;
+  // 全角スペースや連続スペースを詰めてから判定する
+  var n=el.value.replace(/[\s\u3000]+/g,' ').trim();
+  if(!n){fl('部員名を入力してください',true);try{el.focus();}catch(e){}return;}
+  // 以前は無言でreturnしていたため、ボタンが反応しないように見えていた
+  var dup=M.filter(function(m){return m===n;})[0];
+  if(dup===undefined){
+    // 表記ゆれ（スペースの有無）で既にいないかも確認する
+    var norm=function(x){return x.replace(/[\s\u3000]/g,'');};
+    dup=M.filter(function(m){return norm(m)===norm(n);})[0];
+    if(dup!==undefined){fl(dup+'さんは登録済みです',true);return;}
+  }else{
+    fl(n+'さんは登録済みです',true);return;
+  }
   M.push(n);
   // 番号未設定だと並び順が不定になり「見当たらない」状態になるため、末尾の番号を振る
   var mx=0;M.forEach(function(m){var v=(Meta[m]||{}).num;if(v&&v<9000&&v>mx)mx=v;});
