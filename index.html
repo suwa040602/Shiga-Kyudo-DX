@@ -1430,7 +1430,7 @@ function tBun(){
     var perRows='';
     for(var ti=0;ti<bunTate;ti++){
       var curPer=bunTateList[ti]||4;
-      var perOpts=[1,2,3,4,5,6,7,8].map(function(n){return '<option value="'+n+'"'+(curPer===n?' selected':'')+'>'+n+'人</option>';}).join('');
+      var perOpts=[1,2,3,4,5,6,7,8,9,10].map(function(n){return '<option value="'+n+'"'+(curPer===n?' selected':'')+'>'+n+'人</option>';}).join('');
       perRows+='<div class="row" style="align-items:center;gap:10px;margin-bottom:6px">'
         +'<span style="font-size:13px;color:var(--sub);width:48px;flex-shrink:0">'+(ti+1)+'の立</span>'
         +'<select class="bun-per-each" data-tate-idx="'+ti+'" style="flex:1;padding:6px 8px;font-size:13px;border:1px solid var(--ln2);border-radius:8px">'+perOpts+'</select>'
