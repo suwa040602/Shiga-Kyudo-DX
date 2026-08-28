@@ -127,7 +127,11 @@ tbody tr:nth-child(even){background:var(--sec)}
 .achv-tappable{cursor:pointer}
 .achv-tappable:active{opacity:.7}
 /* 分附（縦・全部員・スクロール表） */
-.bun-sheet-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch;margin:8px 0;border:1px solid var(--ln);border-radius:10px}
+.bun-sheet-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch;margin:8px 0;border:1px solid var(--ln);border-radius:10px;touch-action:manipulation}
+/* ○→✗と続けてタップするとiOSがダブルタップ扱いでズームしてしまうため、
+   分附表の中だけダブルタップズームを無効化する。
+   manipulation はスクロール・ピンチズームは残すので、横スクロールも拡大も従来どおり使える。 */
+.bun-sheet-wrap,.bun-table,.bun-tc,.bun-total-row td,.bun-name-cell,#bun-namebar,#bun-namebar-scroll{touch-action:manipulation}
 .bun-table{border-collapse:collapse;table-layout:fixed}
 .bun-rn-r{position:sticky;right:0;z-index:2;background:var(--sec);border-left:1.5px solid var(--ln);font-size:10px;color:var(--faint);text-align:left;padding:0 4px 0 6px;width:28px;white-space:nowrap}
 .bun-total-row td{position:sticky;top:0;z-index:4;padding:5px 4px;text-align:center;font-size:12px;background:var(--sec);border-bottom:2px solid var(--ink);width:50px;min-width:50px}
