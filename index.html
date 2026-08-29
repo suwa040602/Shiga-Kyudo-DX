@@ -664,7 +664,13 @@ function load(){
   initNums();
   // ローカルが空だった場合、Firebaseから正しいデータが来るまではlocalStorageに書かない
   // （ここでsvM()/svS()を呼ぶと、オフライン時に空のシードがそのまま保存され続けてしまう）
-  if(!localWasEmpty)svM();
+  // 注意：ここではsvM()ではなくsaveLocal()のみを使う。svM()はmarkDirty('M'/'Meta')も行うため、
+  // 「起動直後にlocalStorageの古いキャッシュをdirty（未送信の変更）扱いにしてしまい、
+  // その後dbPull()で届く最新のサーバーデータが_applyFields()のガードで適用されずに無視され、
+  // さらに後で分附登録などがdbPushNow()で強制送信を行うと、その古いキャッシュがサーバーへ
+  // 上書き送信されてしまう（追加した部員が消える／消した部員が復活する／並び順が変わる）」
+  // という不具合の原因になっていた。
+  if(!localWasEmpty)saveLocal(['M','Meta']);
   var ms=getMo();if(ms.length)mo=ms[0];
   var ss=getSessKeys();if(ss.length)sesKey=ss[0];
   paint();
