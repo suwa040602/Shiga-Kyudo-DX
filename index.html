@@ -567,7 +567,7 @@ var selfLoginName='',selfSetMode=false;
 function pinHash(s){var h=5381;s=''+s;for(var i=0;i<s.length;i++){h=((h<<5)+h+s.charCodeAt(i))|0;}return 'h'+(h>>>0);}
 var bunD='',bunSess=0,bunDate='',bunMode='',bunData={},bunOrder=null,_bunDrag=null;
 var bunStep='mo-sess',bunTate=1,bunPerTate=4,bunTateList=[4];
-var bunViewMode='table',bunRoundPos=0,bunSaveConfirm=false,_bunSaveArmedAt=0,bunReorderMode=false,settingsReorderMode=false;
+var bunViewMode='table',bunRoundPos=0,bunSaveStage=0,_bunSaveArmedAt=0,bunReorderMode=false,settingsReorderMode=false;
 
 var SEED_NUMS={'赤嶺':1,'小西':2,'諏訪園':3,'永田':4,'苗代':5,'廣中':6,'藤田圭':7,'丸崎':8,'辻':9,'西野':10,'藤田真':11,'鈴木':12,'服部':13,'濱野':14,'藤田悠':15,'柳澤':16,'油谷':17,'久田':18,'平井':19,'藤井':20,'藤本':21,'松野':22,'松本':23,'荒川':24,'今村':25,'岡田':26,'川北':27,'佐野':28,'祐成':29,'長谷川':30,'東':31,'美藤':32,'山本':33,'米虫':34,'上村':35,'川畑':36,'近藤':37,'高島':38,'徳久':39,'豊岡':40,'舟橋':41,'若井':42};
 
@@ -885,7 +885,7 @@ function presentMembers(){
 }
 function sw(t){
   if(!adminMode&&!shonaiMode&&t!=='input'&&t!=='table'&&t!=='penalty'&&t!=='self')return;
-  tab=t;pDel=null;pReset=false;editId=null;pinPendingType=null;pinPendingVal='';wipeStep=0;rankExpandName='';bunSaveConfirm=false;if(t!=='table'){mergeMode=false;mergeSel=[];mergeConfirm=false;histOpen=false;}if(t!=='input'){bunStep='mo-sess';}if(t!=='table')tableView='rank';if(t!=='penalty'){penSubTab='penalty';jobView='list';}paint();
+  tab=t;pDel=null;pReset=false;editId=null;pinPendingType=null;pinPendingVal='';wipeStep=0;rankExpandName='';bunSaveStage=0;if(t!=='table'){mergeMode=false;mergeSel=[];mergeConfirm=false;histOpen=false;}if(t!=='input'){bunStep='mo-sess';}if(t!=='table')tableView='rank';if(t!=='penalty'){penSubTab='penalty';jobView='list';}paint();
 }
 
 /* ------ paintTabs: data-tab + addEventListener ------ */
@@ -1029,12 +1029,16 @@ var CLICK_ID={
   'btn-bun-reorder-toggle':function(){bunReorderMode=!bunReorderMode;paint();},
   'btn-bun-round-prev':function(){if(bunRoundPos>0){bunRoundPos--;paint();}},
   'btn-bun-round-next':function(){bunRoundPos++;paint();},
-  'btn-bun-save':function(){if(!bunSaveConfirm){bunSaveConfirm=true;_bunSaveArmedAt=Date.now();paint();}},
+  'btn-bun-save':function(){if(!bunSaveStage){bunSaveStage=1;_bunSaveArmedAt=Date.now();paint();}},
   /* モーダルが開いた直後の入力は連打の貫通とみなして捨てる。
      「記録する」を二度押しすると、2発目が中央に出た「はい」に当たってしまうため。 */
-  'btn-bun-save-yes':function(){if(Date.now()-_bunSaveArmedAt<600)return;doSaveBun();},
-  'btn-bun-save-cancel':function(){bunSaveConfirm=false;paint();},
-  'bun-save-modal':function(el,ev){if(ev.target===el){bunSaveConfirm=false;paint();}},
+  /* 1枚目で確定せず2枚目へ送る。保存は2枚目の「はい」だけが引き金。 */
+  'btn-bun-save-yes':function(){if(Date.now()-_bunSaveArmedAt<600)return;bunSaveStage=2;_bunSaveArmedAt=Date.now();paint();},
+  'btn-bun-save-yes2':function(){if(Date.now()-_bunSaveArmedAt<600)return;doSaveBun();},
+  /* 2枚目からは1枚目に戻す。閉じ切ると入力し直しに見えて紛らわしい。 */
+  'btn-bun-save-back':function(){bunSaveStage=1;_bunSaveArmedAt=Date.now();paint();},
+  'btn-bun-save-cancel':function(){bunSaveStage=0;paint();},
+  'bun-save-modal':function(el,ev){if(ev.target===el){bunSaveStage=0;paint();}},
   'btn-draft-resume':function(){
     var dr=bunDraftRemote;if(!dr)return;
     bunD=dr.d||'';bunSess=dr.sess||0;bunDate=dr.date||(dr.d?dr.d+'-01':'');bunMode=dr.mode||'';bunTate=dr.tate||1;
@@ -1811,12 +1815,13 @@ function tBun(){
       +'</button>'
     +'</div></div>'
     +bunNameBar
-    +(bunSaveConfirm?bunSaveModal(fill,members):'');
+    +(bunSaveStage?bunSaveModal(fill,members):'');
 }
 /* 保存前の確認。未入力が残っているときは、誰が何マス残っているかを名指しで見せる。
    誤タップで開いた場合、この一覧を読めば「戻る」を選べるはず。
    確定ボタンも通常時(prim)と未入力時(br)で色を変え、同じ位置でも見分けが付くようにする。 */
 function bunSaveModal(fill,members){
+  if(bunSaveStage===2)return bunSaveModal2(fill,members);
   var inc=fill.full?[]:bunIncompleteList();
   var body;
   if(fill.full){
@@ -1842,6 +1847,30 @@ function bunSaveModal(fill,members){
       +'<button id="btn-bun-save-yes" class="btn '+(fill.full?'prim':'br')+'" style="flex:1;margin-top:0;padding:11px">'
         +(fill.full?'はい、記録する':'このまま記録')
       +'</button>'
+    +'</div>'
+    +'<div style="font-size:11px;color:var(--sub);margin-top:10px">このあともう一度確認します</div>'
+  +'</div></div>';
+}
+/* 2枚目の確認。1枚目と同じ位置に確定ボタンを置くと、連打の2発目が
+   そのまま貫通してしまうので、左右を入れ替えて「はい」を左に置く。 */
+function bunSaveModal2(fill,members){
+  var tSh=0,tHi=0;
+  members.forEach(function(n){
+    (bunData[n]||[]).forEach(function(s){if(s!=null){tSh++;if(s===true)tHi++;}});
+  });
+  var rate=tSh>0?Math.round(tHi/tSh*1000)/10:0;
+  return '<div class="modal-ov" id="bun-save-modal"><div class="modal-bx">'
+    +'<div style="font-size:17px;font-weight:800;margin-bottom:10px">本当に記録しますか？</div>'
+    +'<div style="text-align:left;background:var(--sec);border-radius:8px;padding:10px 12px;margin-bottom:8px;font-size:12px">'
+      +'<div style="display:flex;justify-content:space-between;padding:2px 0"><span>練習日</span><span>'+selfDateF(bunDate)+'</span></div>'
+      +'<div style="display:flex;justify-content:space-between;padding:2px 0"><span>種別</span><span>'+(bunMode==='hyakusha'?'100射会':'正規練')+'</span></div>'
+      +'<div style="display:flex;justify-content:space-between;padding:2px 0"><span>人数</span><span>'+members.length+'名</span></div>'
+      +'<div style="display:flex;justify-content:space-between;padding:2px 0"><span>合計</span><span>'+tHi+' / '+tSh+'射（'+rate+'%）</span></div>'
+    +'</div>'
+    +'<div style="font-size:11px;color:var(--sub);margin-bottom:16px">記録後は成績表から編集・削除できます。</div>'
+    +'<div class="row" style="gap:8px">'
+      +'<button id="btn-bun-save-yes2" class="btn '+(fill.full?'prim':'br')+'" style="flex:1;margin-top:0;padding:11px">はい</button>'
+      +'<button id="btn-bun-save-back" class="btn bh" style="flex:1;padding:11px">戻る</button>'
     +'</div>'
   +'</div></div>';
 }
@@ -1872,9 +1901,9 @@ function doSaveBun(){
   onPushSuccess(dbDeleteDraft);
   dbPushNow();
   fl(saved+'名分の分附を記録しました（'+fm(bunD)+' 第'+bunSess+'週）');
-  bunData={};bunD='';bunSess=0;bunDate='';bunMode='';bunStep='mo-sess';bunOrder=null;bunTate=1;bunTateList=[4];bunViewMode='table';bunRoundPos=0;bunSaveConfirm=false;_draftBannerDismissed=false;bunDraftRemote=null;paint();
+  bunData={};bunD='';bunSess=0;bunDate='';bunMode='';bunStep='mo-sess';bunOrder=null;bunTate=1;bunTateList=[4];bunViewMode='table';bunRoundPos=0;bunSaveStage=0;_draftBannerDismissed=false;bunDraftRemote=null;paint();
 }
-function resetBun(){dbDeleteDraft();bunData={};bunD='';bunSess=0;bunDate='';bunMode='';bunStep='mo-sess';bunOrder=null;bunTate=1;bunTateList=[4];bunViewMode='table';bunRoundPos=0;bunSaveConfirm=false;_draftBannerDismissed=false;bunDraftRemote=null;paint();}
+function resetBun(){dbDeleteDraft();bunData={};bunD='';bunSess=0;bunDate='';bunMode='';bunStep='mo-sess';bunOrder=null;bunTate=1;bunTateList=[4];bunViewMode='table';bunRoundPos=0;bunSaveStage=0;_draftBannerDismissed=false;bunDraftRemote=null;paint();}
 
 
 /* ======= PENALTY ======= */
