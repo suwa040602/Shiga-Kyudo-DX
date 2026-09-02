@@ -567,7 +567,7 @@ var selfLoginName='',selfSetMode=false;
 function pinHash(s){var h=5381;s=''+s;for(var i=0;i<s.length;i++){h=((h<<5)+h+s.charCodeAt(i))|0;}return 'h'+(h>>>0);}
 var bunD='',bunSess=0,bunDate='',bunMode='',bunData={},bunOrder=null,_bunDrag=null;
 var bunStep='mo-sess',bunTate=1,bunPerTate=4,bunTateList=[4];
-var bunViewMode='table',bunRoundPos=0,bunSaveConfirm=false,bunReorderMode=false,settingsReorderMode=false;
+var bunViewMode='table',bunRoundPos=0,bunSaveConfirm=false,_bunSaveArmedAt=0,bunReorderMode=false,settingsReorderMode=false;
 
 var SEED_NUMS={'赤嶺':1,'小西':2,'諏訪園':3,'永田':4,'苗代':5,'廣中':6,'藤田圭':7,'丸崎':8,'辻':9,'西野':10,'藤田真':11,'鈴木':12,'服部':13,'濱野':14,'藤田悠':15,'柳澤':16,'油谷':17,'久田':18,'平井':19,'藤井':20,'藤本':21,'松野':22,'松本':23,'荒川':24,'今村':25,'岡田':26,'川北':27,'佐野':28,'祐成':29,'長谷川':30,'東':31,'美藤':32,'山本':33,'米虫':34,'上村':35,'川畑':36,'近藤':37,'高島':38,'徳久':39,'豊岡':40,'舟橋':41,'若井':42};
 
@@ -1029,8 +1029,10 @@ var CLICK_ID={
   'btn-bun-reorder-toggle':function(){bunReorderMode=!bunReorderMode;paint();},
   'btn-bun-round-prev':function(){if(bunRoundPos>0){bunRoundPos--;paint();}},
   'btn-bun-round-next':function(){bunRoundPos++;paint();},
-  'btn-bun-save':function(){if(!bunSaveConfirm){bunSaveConfirm=true;paint();}else{doSaveBun();}},
-  'btn-bun-save-yes':function(){doSaveBun();},
+  'btn-bun-save':function(){if(!bunSaveConfirm){bunSaveConfirm=true;_bunSaveArmedAt=Date.now();paint();}},
+  /* モーダルが開いた直後の入力は連打の貫通とみなして捨てる。
+     「記録する」を二度押しすると、2発目が中央に出た「はい」に当たってしまうため。 */
+  'btn-bun-save-yes':function(){if(Date.now()-_bunSaveArmedAt<600)return;doSaveBun();},
   'btn-bun-save-cancel':function(){bunSaveConfirm=false;paint();},
   'bun-save-modal':function(el,ev){if(ev.target===el){bunSaveConfirm=false;paint();}},
   'btn-draft-resume':function(){
@@ -1451,6 +1453,27 @@ function getBunMembers(){
   return sorted;
 }
 function bunShotCount(){return 20;}
+/* 未入力が残っている部員と、その残りマス数。確認モーダルで名前を出すのに使う。
+   1マスも入っていない部員は doSaveBun() で保存対象から外れるので別扱いにする。 */
+function bunIncompleteList(){
+  var shots=bunShotCount(),out=[];
+  getBunMembers().forEach(function(n){
+    var col=bunData[n]||[];
+    var done=0;for(var i=0;i<shots;i++){if(col[i]!=null)done++;}
+    if(done<shots)out.push({name:n,done:done,left:shots-done});
+  });
+  return out;
+}
+/* 入力の埋まり具合。「記録する」の見た目と進捗バーで共用する。 */
+function bunFillStats(){
+  var members=getBunMembers();
+  var shots=bunShotCount();
+  var total=shots*members.length,done=0;
+  members.forEach(function(n){
+    (bunData[n]||[]).forEach(function(s){if(s!==null)done++;});
+  });
+  return {done:done,total:total,left:Math.max(0,total-done),full:total>0&&done>=total};
+}
 function bunTateBoundaries(){
   // 4射ごとの区切りインデックス（0始まり）: [3,7,11,15] = 4射,4射,4射,4射ごと
   var bounds=[];
@@ -1624,6 +1647,7 @@ function tBun(){
   ensureBunData();
   var members=getBunMembers();
   var shots=bunShotCount();
+  var fill=bunFillStats();
 
   // ---- 表示モード切替バー ----
   var modeBar='<div class="tb">'
@@ -1717,9 +1741,7 @@ function tBun(){
     var tateMs=members.slice(cur.mStart, Math.min(cur.mEnd, members.length));
 
     // 完了済みセル数（全体）
-    var doneCount=0, totalCells=shots*members.length;
-    members.forEach(function(n){(bunData[n]||[]).forEach(function(s){if(s!==null)doneCount++;});});
-    var progressPct=totalCells>0?Math.round(doneCount/totalCells*100):0;
+    var progressPct=fill.total>0?Math.round(fill.done/fill.total*100):0;
 
     // 一覧表と同じ構造で、この立のメンバー列・この射番号範囲の行だけ描画
     var rHeaderRow='<tr class="bun-total-row">'
@@ -1768,8 +1790,8 @@ function tBun(){
         +'</table>'
       +'</div>'
       +'<div class="row" style="gap:8px;margin-top:10px">'
-        +'<button id="btn-bun-round-prev" class="btn bh" style="flex:1;padding:10px'+(prevOk?'':';opacity:0.35')+'"'+(prevOk?'':' disabled')+'">← 前</button>'
-        +'<button id="btn-bun-round-next" class="btn prim" style="flex:2;padding:10px;margin-top:0'+(nextOk?'':';opacity:0.35')+'"'+(nextOk?'':' disabled')+'">次へ →</button>'
+        +'<button id="btn-bun-round-prev" class="btn bh" style="flex:1;padding:10px'+(prevOk?'':';opacity:0.35')+'"'+(prevOk?'':' disabled')+'>← 前</button>'
+        +'<button id="btn-bun-round-next" class="btn prim" style="flex:2;padding:10px;margin-top:0'+(nextOk?'':';opacity:0.35')+'"'+(nextOk?'':' disabled')+'>次へ →</button>'
       +'</div>'
     +'</div>';
   }
@@ -1782,20 +1804,46 @@ function tBun(){
     +'<p style="font-size:11px;color:var(--sub);margin:0 0 6px">'+fm(bunD)+' 第'+bunSess+'週 — '+members.length+'名</p>'
     +modeBar
     +inputArea
-    +'<div class="row" style="gap:8px;margin-top:12px">'
-      +'<button id="btn-bun-save" class="btn prim" style="margin-top:0;width:100%;padding:12px">記録する</button>'
+    +'<div style="height:1px;background:var(--ln);margin:22px 0 14px"></div>'
+    +'<div class="row" style="gap:8px;margin-top:0">'
+      +'<button id="btn-bun-save" class="btn '+(fill.full?'prim':'bh')+'" style="margin-top:0;width:100%;padding:12px">'
+        +(fill.full?'記録する':'記録する（残り'+fill.left+'マス）')
+      +'</button>'
     +'</div></div>'
     +bunNameBar
-    +(bunSaveConfirm
-      ?'<div class="modal-ov" id="bun-save-modal"><div class="modal-bx">'
-        +'<div style="font-size:17px;font-weight:800;margin-bottom:6px">全員20射引き終わりましたか？</div>'
-        +'<div style="font-size:13px;color:var(--sub);margin-bottom:18px">'+selfDateF(bunDate)+' — '+members.length+'名 の的中を記録します。</div>'
-        +'<div class="row" style="gap:8px">'
-          +'<button id="btn-bun-save-cancel" class="btn bh" style="flex:1;padding:11px">戻る</button>'
-          +'<button id="btn-bun-save-yes" class="btn prim" style="flex:1;margin-top:0;padding:11px">はい、記録する</button>'
-        +'</div>'
-      +'</div></div>'
-      :'');
+    +(bunSaveConfirm?bunSaveModal(fill,members):'');
+}
+/* 保存前の確認。未入力が残っているときは、誰が何マス残っているかを名指しで見せる。
+   誤タップで開いた場合、この一覧を読めば「戻る」を選べるはず。
+   確定ボタンも通常時(prim)と未入力時(br)で色を変え、同じ位置でも見分けが付くようにする。 */
+function bunSaveModal(fill,members){
+  var inc=fill.full?[]:bunIncompleteList();
+  var body;
+  if(fill.full){
+    body='<div style="font-size:17px;font-weight:800;margin-bottom:6px">全員20射引き終わりましたか？</div>'
+      +'<div style="font-size:13px;color:var(--sub);margin-bottom:18px">'+selfDateF(bunDate)+' — '+members.length+'名 の的中を記録します。</div>';
+  }else{
+    var rows=inc.slice(0,8).map(function(o){
+      return '<div style="display:flex;justify-content:space-between;font-size:12px;padding:3px 0">'
+        +'<span>'+esc(o.name)+'</span>'
+        +'<span style="color:var(--bad)">'+o.done+'/'+bunShotCount()+'射</span>'
+      +'</div>';
+    }).join('');
+    if(inc.length>8)rows+='<div style="font-size:11px;color:var(--sub);padding-top:3px">ほか'+(inc.length-8)+'名</div>';
+    body='<div style="font-size:17px;font-weight:800;margin-bottom:6px;color:var(--bad)">未入力のマスがあります</div>'
+      +'<div style="font-size:13px;color:var(--sub);margin-bottom:10px">'+selfDateF(bunDate)+' — 残り'+fill.left+'マス</div>'
+      +'<div style="text-align:left;background:var(--sec);border-radius:8px;padding:8px 10px;margin-bottom:10px">'+rows+'</div>'
+      +'<div style="font-size:11px;color:var(--sub);margin-bottom:16px">未入力のマスは射数に数えず、引いた分だけで記録します。</div>';
+  }
+  return '<div class="modal-ov" id="bun-save-modal"><div class="modal-bx">'
+    +body
+    +'<div class="row" style="gap:8px">'
+      +'<button id="btn-bun-save-cancel" class="btn bh" style="flex:1;padding:11px">戻る</button>'
+      +'<button id="btn-bun-save-yes" class="btn '+(fill.full?'prim':'br')+'" style="flex:1;margin-top:0;padding:11px">'
+        +(fill.full?'はい、記録する':'このまま記録')
+      +'</button>'
+    +'</div>'
+  +'</div></div>';
 }
 function doSaveBun(){
   var members=getBunMembers();var saved=0;
