@@ -389,7 +389,7 @@ function dbListen(){
 
 /* ============ 分附の下書き同期 ============ */
 function _buildDraftPayload(){
-  return {d:bunD,sess:bunSess,date:bunDate,tate:bunTate,tateList:bunTateList,order:bunOrder,data:bunData,updatedAt:Date.now(),by:CLIENT_ID};
+  return {d:bunD,sess:bunSess,date:bunDate,mode:bunMode,tate:bunTate,tateList:bunTateList,order:bunOrder,data:bunData,updatedAt:Date.now(),by:CLIENT_ID};
 }
 function scheduleDbPushDraft(name){
   if(_loading)return;
@@ -565,7 +565,7 @@ var selfSub='self',selfPracSub='input',selfForm={date:'',sh:'20',hi:''},selfMark
 var selfMoKey=null;
 var selfLoginName='',selfSetMode=false;
 function pinHash(s){var h=5381;s=''+s;for(var i=0;i<s.length;i++){h=((h<<5)+h+s.charCodeAt(i))|0;}return 'h'+(h>>>0);}
-var bunD='',bunSess=0,bunDate='',bunData={},bunOrder=null,_bunDrag=null;
+var bunD='',bunSess=0,bunDate='',bunMode='',bunData={},bunOrder=null,_bunDrag=null;
 var bunStep='mo-sess',bunTate=1,bunPerTate=4,bunTateList=[4];
 var bunViewMode='table',bunRoundPos=0,bunSaveConfirm=false,bunReorderMode=false,settingsReorderMode=false;
 
@@ -1018,7 +1018,7 @@ var CLICK_ID={
     logoTapTimer=setTimeout(function(){logoTapCount=0;},1500);
     if(logoTapCount>=5){logoTapCount=0;clearTimeout(logoTapTimer);doLogin();}
   },
-  'btn-bun-next-att':function(){if(!bunDate)return;var wk=calWeekOfMonth(bunDate);if(!wk)return;bunD=bunDate.slice(0,7);bunSess=wk;bunStep='att';paint();},
+  'btn-bun-next-att':function(){if(!bunDate||!bunMode)return;var wk=calWeekOfMonth(bunDate);if(!wk)return;bunD=bunDate.slice(0,7);bunSess=wk;bunStep='att';paint();},
   'btn-bun-back-mo':function(){bunStep='mo-sess';paint();},
   'btn-bun-next-cfg':function(){bunStep='config';bunOrder=null;paint();},
   'btn-bun-back-att':function(){bunStep='att';paint();},
@@ -1035,7 +1035,7 @@ var CLICK_ID={
   'bun-save-modal':function(el,ev){if(ev.target===el){bunSaveConfirm=false;paint();}},
   'btn-draft-resume':function(){
     var dr=bunDraftRemote;if(!dr)return;
-    bunD=dr.d||'';bunSess=dr.sess||0;bunDate=dr.date||(dr.d?dr.d+'-01':'');bunTate=dr.tate||1;
+    bunD=dr.d||'';bunSess=dr.sess||0;bunDate=dr.date||(dr.d?dr.d+'-01':'');bunMode=dr.mode||'';bunTate=dr.tate||1;
     bunTateList=(dr.tateList&&dr.tateList.length)?dr.tateList.slice():[4];
     bunOrder=dr.order?dr.order.slice():null;
     bunData={};if(dr.data)Object.keys(dr.data).forEach(function(nm){bunData[nm]=(dr.data[nm]||[]).slice();});
@@ -1152,6 +1152,7 @@ var CLICK_ATTR=[
     toggleBunShot(el.getAttribute('data-bun-name'),parseInt(el.getAttribute('data-bun-idx'),10));
   }],
   ['data-att-toggle',function(){attOpen=!attOpen;paint();}],
+  ['data-bun-mode',function(el){bunMode=el.getAttribute('data-bun-mode');bunOrder=null;paint();}],
   ['data-att-name',function(el){toggleAtt(el.getAttribute('data-att-name'));}],
   ['data-ach-key',function(el){toggleAchievement(el.getAttribute('data-ach-name'),el.getAttribute('data-ach-key'));}],
   ['data-indiv-name',function(el){indivMb=el.getAttribute('data-indiv-name');tableView='indiv';indivMoView='table';indivWkView='table';indivView='official';paint();}],
@@ -1370,7 +1371,42 @@ function clearAtt(){
 }
 
 /* ======= 分附 ======= */
+/* レコードの新旧を比較するためのキー。月(YYYYMM) → 週 → 日 → id の順で見る。
+   date があるものは recWeek() が実日付から週を出すので、旧形式(sess)とも同じ土俵で比べられる。
+   同じ週に複数レコードがある場合は日付で比べ、日付が無い旧形式は同週内で先（古い扱い）に置く。 */
+function recOrderKey(e){
+  var ym=parseInt(String(e.d||'').replace('-',''),10)||0;
+  var day=e&&e.date?(parseInt(String(e.date).split('-')[2],10)||0):0;
+  return [ym,recWeek(e),day,e.id||0];
+}
+function recOrderCmp(a,b){
+  var ka=recOrderKey(a),kb=recOrderKey(b);
+  for(var i=0;i<4;i++){if(ka[i]!==kb[i])return ka[i]-kb[i];}
+  return 0;
+}
 function getBunDefaultOrder(){
+  return bunMode==='hyakusha'?bunOrderByLatest():bunOrderByPrevWeek();
+}
+/* 100射会モード：直前の1レコードの的中率で並べる。
+   1日に何度も立つので、週単位ではなく「最後に引いた20射」を見る。 */
+function bunOrderByLatest(){
+  var base=membersSorted().slice();
+  /* 20射に満たなくてもそのレコードの率をそのまま使う。
+     自主練(SP)は対象外で、正規練・分附の記録(S)のみ見る。 */
+  var scores={};
+  base.forEach(function(name){
+    var latest=null;
+    S.forEach(function(e){
+      if(e.mb!==name)return;
+      if(!e.sh||e.sh<=0)return;
+      if(!latest||recOrderCmp(e,latest)>0)latest=e;
+    });
+    if(latest)scores[name]=latest.hi/latest.sh;
+  });
+  return bunSortByScores(base,scores);
+}
+/* 正規練モード（従来どおり）：前週1週間分の合計的中率で並べる。 */
+function bunOrderByPrevWeek(){
   // 前の週を特定
   var prevD=bunD, prevSess=bunSess-1;
   if(prevSess<1){
@@ -1393,10 +1429,13 @@ function getBunDefaultOrder(){
       scores[name]=sh>0?hi/sh:-1;
     }
   });
-  var serialIdx={};membersSorted().forEach(function(n,i){serialIdx[n]=i;});
-  var anyScored=Object.keys(scores).length>0;
-  if(!anyScored)return base; // 前週の記録が誰も無い→通し番号昇順
-  // 記録あり＝右側（右ほど的中率が高い＝右端が先週トップ）。記録なし＝その左に、右から通し番号昇順（記録ありの直左＝番号が小さい）
+  return bunSortByScores(base,scores);
+}
+/* 共通の並べ方：記録あり＝右側（右ほど的中率が高い＝右端がトップ）。
+   記録なし＝その左に、右から通し番号昇順（記録ありの直左＝番号が小さい）。 */
+function bunSortByScores(base,scores){
+  var serialIdx={};base.forEach(function(n,i){serialIdx[n]=i;});
+  if(!Object.keys(scores).length)return base; // 誰も記録が無い→通し番号昇順
   return base.sort(function(a,b){
     var ha=scores.hasOwnProperty(a),hb=scores.hasOwnProperty(b);
     if(ha&&hb)return scores[a]-scores[b];
@@ -1501,7 +1540,7 @@ function tBun(){
   if(bunStep==='mo-sess'){
     if(!bunDate)bunDate=todayStr();
     var wk=calWeekOfMonth(bunDate);
-    var ready=!!bunDate&&wk>0;
+    var ready=!!bunDate&&wk>0&&!!bunMode;
     var draftBanner='';
     var hasDraft=bunDraftRemote&&!_draftBannerDismissed;
     if(hasDraft){
@@ -1509,7 +1548,7 @@ function tBun(){
       var drTime=dr.updatedAt?new Date(dr.updatedAt).toLocaleTimeString('ja-JP',{hour:'2-digit',minute:'2-digit'}):'';
       draftBanner='<div class="card mb10" style="background:#fef9e7;border:1.5px solid var(--warn,#e6a817)">'
         +'<div style="font-size:14px;font-weight:800;color:var(--warn,#b7800a);margin-bottom:4px">📋 進行中の分附があります</div>'
-        +'<div style="font-size:12px;color:var(--sub);margin-bottom:12px">'+(dr.d?fm(dr.d):(dr.date?fm(dr.date.slice(0,7)):''))+(dr.date?' 第'+calWeekOfMonth(dr.date)+'週':dr.sess?' 第'+dr.sess+'週':'')+(drTime?' — 更新 '+drTime:'')+'</div>'
+        +'<div style="font-size:12px;color:var(--sub);margin-bottom:12px">'+(dr.d?fm(dr.d):(dr.date?fm(dr.date.slice(0,7)):''))+(dr.date?' 第'+calWeekOfMonth(dr.date)+'週':dr.sess?' 第'+dr.sess+'週':'')+(dr.mode==='hyakusha'?' — 100射会':'')+(drTime?' — 更新 '+drTime:'')+'</div>'
         +'<button id="btn-draft-resume" class="btn prim" style="width:100%;margin-top:0;padding:16px;font-size:17px;font-weight:800">▶ 続きから入力する</button>'
         +'<div style="font-size:11px;color:var(--sub);text-align:center;margin-top:8px">※ 新しく作らず、こちらから続けてください</div>'
       +'</div>';
@@ -1519,6 +1558,18 @@ function tBun(){
       +'<p style="margin:0 0 10px;font-size:14px;font-weight:700">'+(hasDraft?'または新しく分附を作成':'① 日付を選択')+'</p>'
       +'<label style="margin-top:0">練習日</label>'
       +'<input id="bun-date" type="date" value="'+bunDate+'">'
+      +'<label>種別</label>'
+      +'<div class="tb" style="margin-bottom:4px">'
+        +'<button class="t'+(bunMode==='normal'?' on':'')+'" data-bun-mode="normal">正規練</button>'
+        +'<button class="t'+(bunMode==='hyakusha'?' on':'')+'" data-bun-mode="hyakusha">100射会</button>'
+      +'</div>'
+      +'<div style="font-size:11px;color:'+(bunMode?'var(--sub)':'var(--warn,#b7800a)')+';margin-bottom:4px">'
+        +(bunMode==='hyakusha'
+          ?'立ち順は直前の20射の的中率で決まります（20射ごとに組み替え）'
+          :bunMode==='normal'
+          ?'立ち順は前週の合計的中率で決まります'
+          :'種別を選択してください')
+      +'</div>'
       +'<div style="margin-top:8px;font-size:12px;color:var(--sub)">'+(ready?fm(bunDate.slice(0,7))+' <b style="color:var(--ink)">第'+wk+'週</b>として記録されます':'日付を選択してください')+'</div>'
       +'<button id="btn-bun-next-att" class="btn '+(hasDraft?'bh':'prim')+'" style="width:100%;margin-top:12px;padding:12px'+(ready?'':';opacity:0.45')+'"'+(ready?'':' disabled')+'>次へ：出席者を選択 →</button>'
       +'</div>';
@@ -1773,9 +1824,9 @@ function doSaveBun(){
   onPushSuccess(dbDeleteDraft);
   dbPushNow();
   fl(saved+'名分の分附を記録しました（'+fm(bunD)+' 第'+bunSess+'週）');
-  bunData={};bunD='';bunSess=0;bunDate='';bunStep='mo-sess';bunOrder=null;bunTate=1;bunTateList=[4];bunViewMode='table';bunRoundPos=0;bunSaveConfirm=false;_draftBannerDismissed=false;bunDraftRemote=null;paint();
+  bunData={};bunD='';bunSess=0;bunDate='';bunMode='';bunStep='mo-sess';bunOrder=null;bunTate=1;bunTateList=[4];bunViewMode='table';bunRoundPos=0;bunSaveConfirm=false;_draftBannerDismissed=false;bunDraftRemote=null;paint();
 }
-function resetBun(){dbDeleteDraft();bunData={};bunD='';bunSess=0;bunDate='';bunStep='mo-sess';bunOrder=null;bunTate=1;bunTateList=[4];bunViewMode='table';bunRoundPos=0;bunSaveConfirm=false;_draftBannerDismissed=false;bunDraftRemote=null;paint();}
+function resetBun(){dbDeleteDraft();bunData={};bunD='';bunSess=0;bunDate='';bunMode='';bunStep='mo-sess';bunOrder=null;bunTate=1;bunTateList=[4];bunViewMode='table';bunRoundPos=0;bunSaveConfirm=false;_draftBannerDismissed=false;bunDraftRemote=null;paint();}
 
 
 /* ======= PENALTY ======= */
