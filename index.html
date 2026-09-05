@@ -609,13 +609,61 @@ function membersSorted(){
     return na!==nb?na-nb:M.indexOf(a)-M.indexOf(b);
   });
 }
+/* ======= 生体認証（WebAuthn / パスキー） =======
+   端末ローカルの解錠補助。サーバー検証は無いため、
+   セキュリティ強度はPINと同等（利便性のための機能）。 */
+var KBIO='kyudo_bio_v1';
+function bioSupported(){
+  var secure=(location.protocol==='https:'||location.hostname==='localhost'||location.hostname==='127.0.0.1');
+  return !!(secure&&window.PublicKeyCredential&&navigator.credentials&&navigator.credentials.create&&window.crypto&&crypto.getRandomValues);
+}
+function bioGet(){try{var v=localStorage.getItem(KBIO);return v?JSON.parse(v):null;}catch(e){return null;}}
+function bioSet(v){try{if(v)localStorage.setItem(KBIO,JSON.stringify(v));else localStorage.removeItem(KBIO);}catch(e){}}
+function _b64u(buf){var a=new Uint8Array(buf),b='';for(var i=0;i<a.length;i++)b+=String.fromCharCode(a[i]);return btoa(b).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');}
+function _unb64u(str){var t=str.replace(/-/g,'+').replace(/_/g,'/');while(t.length%4)t+='=';var bin=atob(t),a=new Uint8Array(bin.length);for(var i=0;i<bin.length;i++)a[i]=bin.charCodeAt(i);return a.buffer;}
+function _rnd(n){var a=new Uint8Array(n);crypto.getRandomValues(a);return a;}
+function bioRegister(){
+  if(!bioSupported()){fl('この端末では生体認証を利用できません',true);return;}
+  navigator.credentials.create({publicKey:{
+    challenge:_rnd(32),
+    rp:{name:'弓道部 的中管理'},
+    user:{id:_rnd(16),name:'admin@kyudo',displayName:'管理者'},
+    pubKeyCredParams:[{type:'public-key',alg:-7},{type:'public-key',alg:-257}],
+    authenticatorSelection:{authenticatorAttachment:'platform',userVerification:'required',residentKey:'preferred'},
+    timeout:60000,attestation:'none'
+  }}).then(function(cred){
+    if(!cred){fl('登録できませんでした',true);return;}
+    bioSet({id:_b64u(cred.rawId),at:Date.now()});
+    paint();fl('この端末に生体認証を登録しました');
+  }).catch(function(){fl('生体認証の登録を中止しました',true);});
+}
+function bioRemove(){bioSet(null);paint();fl('生体認証の登録を解除しました');}
+function bioAvailable(){return !!(bioGet()&&bioSupported());}
+function bioUnlock(cb){
+  var st=bioGet();
+  if(!st||!bioSupported()){cb(false);return;}
+  navigator.credentials.get({publicKey:{
+    challenge:_rnd(32),
+    allowCredentials:[{type:'public-key',id:_unb64u(st.id),transports:['internal']}],
+    userVerification:'required',timeout:60000
+  }}).then(function(a){cb(!!a);}).catch(function(){cb(false);});
+}
+function bioEnter(){adminMode=true;paint();fl('管理者モードで入りました');}
 function doLogin(){
-  askPin('PINを入力してください',function(pin){
-    if(pin===null)return;
-    if(pin===ADMIN_PIN){adminMode=true;paint();fl('管理者モードで入りました');}
-    else if(pin===SHONAI_PIN){shonaiMode=true;paint();fl('渉内モードで入りました');}
-    else fl('PINが正しくありません',true);
-  });
+  function pinFlow(){
+    askPin('PINを入力してください',function(pin){
+      if(pin===null)return;
+      if(pin===ADMIN_PIN){adminMode=true;paint();fl('管理者モードで入りました');}
+      else if(pin===SHONAI_PIN){shonaiMode=true;paint();fl('渉内モードで入りました');}
+      else fl('PINが正しくありません',true);
+    },pinFlow);
+  }
+  // 登録済みなら先に生体認証を試し、失敗・中止時はPIN入力へ
+  if(bioAvailable()){
+    bioUnlock(function(ok){if(ok)bioEnter();else pinFlow();});
+    return;
+  }
+  pinFlow();
 }
 function lockNow(){
   adminMode=false;shonaiMode=false;
@@ -625,16 +673,26 @@ function lockNow(){
   if(tab==='table')tab='self';
   paint();fl('ロックしました');
 }
-function askPin(msg,cb){
+function askPin(msg,cb,onRetryBio){
   var ov=document.createElement('div');ov.className='modal-ov';
+  var bioBtn=(onRetryBio&&bioAvailable())
+    ?'<button id="_askpin-bio" class="btn bg" style="width:100%;margin:0 0 10px;padding:10px">生体認証で解除</button>':'';
   ov.innerHTML='<div class="modal-bx">'
     +'<div style="font-size:15px;font-weight:700;margin-bottom:12px">'+esc(msg)+'</div>'
+    +bioBtn
     +'<input id="_askpin" type="password" inputmode="numeric" style="width:100%;margin-bottom:14px" autocomplete="off">'
     +'<div class="row" style="gap:8px">'
       +'<button id="_askpin-cancel" class="btn bh" style="flex:1;padding:10px">キャンセル</button>'
       +'<button id="_askpin-ok" class="btn prim" style="flex:1;margin-top:0;padding:10px">OK</button>'
     +'</div></div>';
   document.body.appendChild(ov);
+  var _bb=ov.querySelector('#_askpin-bio');
+  if(_bb)_bb.addEventListener('click',function(){
+    bioUnlock(function(ok){
+      if(ok){if(ov.parentNode)ov.parentNode.removeChild(ov);bioEnter();}
+      else fl('生体認証に失敗しました',true);
+    });
+  });
   var inp=ov.querySelector('#_askpin');
   function done(v){if(ov.parentNode)ov.parentNode.removeChild(ov);cb(v);}
   setTimeout(function(){try{inp.focus();}catch(e){}},30);
@@ -1112,6 +1170,8 @@ var CLICK_ID={
   'btn-ov-close':function(){overlay='';newsView='list';newsEditId=null;newsDelId=null;paint();},
   'ov-backdrop':function(el,ev){if(ev.target===el){overlay='';newsView='list';newsEditId=null;newsDelId=null;paint();}},
   'btn-lock-now':function(){lockNow();},
+  'btn-bio-reg':function(){bioRegister();},
+  'btn-bio-del':function(){bioRemove();},
   'btn-hist-toggle':function(){histOpen=!histOpen;paint();}
 };
 var CHANGE_ID={
@@ -3431,7 +3491,15 @@ function tSt(){
               +'<input id="inp-pin-new" type="password" placeholder="新しいPIN（4文字以上）" style="flex:1">'
               +'<button id="btn-pin-save" class="btn bg" style="margin-top:0;padding:10px 16px">変更</button>'
             +'</div>')
-          +'<p style="margin:12px 0 8px;font-size:13px;font-weight:700">渉内PIN変更</p>'
+          +'<p style="margin:14px 0 8px;font-size:13px;font-weight:700">生体認証（この端末のみ）</p>'
+          +(bioSupported()
+            ?(bioGet()
+              ?'<div style="padding:8px 12px;background:#e8f3ea;border-radius:8px;color:var(--good);font-size:12px;margin-bottom:8px">✓ この端末に登録済みです</div>'
+                +'<button id="btn-bio-del" class="btn bh" style="width:100%;margin-top:0;padding:10px">登録を解除</button>'
+              :'<div style="font-size:11.5px;color:var(--sub);margin-bottom:8px">登録すると、次回からPINの代わりにFace ID・指紋認証で解除できます。端末ごとの設定で、PIN入力も引き続き使えます。</div>'
+                +'<button id="btn-bio-reg" class="btn bg" style="width:100%;margin-top:0;padding:10px">この端末に生体認証を登録</button>')
+            :'<div style="font-size:11.5px;color:var(--faint)">この端末・ブラウザでは利用できません（HTTPS接続が必要です）。</div>')
+          +'<p style="margin:14px 0 8px;font-size:13px;font-weight:700">渉内PIN変更</p>'
           +(pinPendingType==='shonai'
             ?'<div style="padding:8px 12px;background:#fdf1e8;border-radius:8px;color:var(--warn,#b9770e);font-size:12px;margin-bottom:8px">新しいPIN「'+esc(pinPendingVal)+'」に変更します。よろしいですか？</div>'
               +'<div class="row" style="gap:8px">'
