@@ -554,14 +554,15 @@ var sesSel=null,sesOpen=false;
 var fYear='all',fGender='all';
 var form={mb:'',d:CURM,sess:1,sh:'20',hi:''};
 var editId=null,editForm={};
-var pDel=null,pReset=false,attOpen=false,indivMb='',tableView='rank',indivMoView='table',indivWkView='table',indivView='official';
+var pDel=null,pReset=false,attOpen=false,indivMb='',tableView='rank',indivView='official';
 var rankExpandName='';
+var indivMoExpand='',indivWkExpand='';
 var mergeMode=false,mergeSel=[],mergeConfirm=false,mergeForm={d:'',sess:0,sh:0,hi:0,mb:''};
 /* ---- 自主練 / マイページ ---- */
 var SP=[],KSP='kyudo_sp_v1';
 var Pins={},KPINS='kyudo_pins_v1';
 var myMb='',KME='kyudo_me_v1';
-var selfSub='self',selfPracSub='input',selfForm={date:'',sh:'20',hi:''},selfMarks=[];
+var selfSub='official',selfPracSub='input',selfOffSub='official',selfForm={date:'',sh:'20',hi:''},selfMarks=[];
 var selfMoKey=null;
 var selfLoginName='',selfSetMode=false;
 function pinHash(s){var h=5381;s=''+s;for(var i=0;i<s.length;i++){h=((h<<5)+h+s.charCodeAt(i))|0;}return 'h'+(h>>>0);}
@@ -620,7 +621,8 @@ function lockNow(){
   adminMode=false;shonaiMode=false;
   editId=null;pinPendingType=null;pinPendingVal='';wipeStep=0;seedStep=0;
   overlay='';histOpen=false;mergeMode=false;mergeSel=[];mergeConfirm=false;
-  if(tab!=='input'&&tab!=='table'&&tab!=='penalty'&&tab!=='self')tab='input';
+  if(tab!=='input'&&tab!=='penalty'&&tab!=='self')tab='input';
+  if(tab==='table')tab='self';
   paint();fl('ロックしました');
 }
 function askPin(msg,cb){
@@ -885,18 +887,22 @@ function presentMembers(){
 }
 function sw(t){
   if(!adminMode&&!shonaiMode&&t!=='input'&&t!=='table'&&t!=='penalty'&&t!=='self')return;
+  if(t==='table'&&!adminMode)return; // 成績表タブは管理者のみ
   tab=t;pDel=null;pReset=false;editId=null;pinPendingType=null;pinPendingVal='';wipeStep=0;rankExpandName='';bunSaveStage=0;if(t!=='table'){mergeMode=false;mergeSel=[];mergeConfirm=false;histOpen=false;}if(t!=='input'){bunStep='mo-sess';}if(t!=='table')tableView='rank';if(t!=='penalty'){penSubTab='penalty';jobView='list';}paint();
 }
 
 /* ------ paintTabs: data-tab + addEventListener ------ */
 function paintTabs(){
-  var T=[['input','分附'],['table','成績表'],['penalty','罰則'],['self','マイページ']];
+  var T=[['input','分附']];
+  if(adminMode)T.push(['table','成績表']); // 成績表タブは管理者のみ表示
+  T.push(['penalty','罰則'],['self','マイページ']);
   var el=document.getElementById('tabs');
   el.innerHTML=T.map(function(kl){
     return '<button class="t'+(tab===kl[0]?' on':'')+'" data-tab="'+kl[0]+'">'+kl[1]+'</button>';
   }).join('');
 }
 function paint(){
+  if(tab==='table'&&!adminMode)tab='self'; // ロック解除時の取り残し防止
   if(overlay==='news')markNewsRead();
   paintTabs();
   var days=bkupDaysAgo();
@@ -1062,10 +1068,6 @@ var CLICK_ID={
   'btn-indiv-back':function(){tableView='rank';paint();},
   'btn-indiv-official':function(){indivView='official';paint();},
   'btn-indiv-analysis':function(){indivView='analysis';paint();},
-  'btn-mo-table':function(){indivMoView='table';paint();},
-  'btn-mo-chart':function(){indivMoView='chart';paint();},
-  'btn-wk-table':function(){indivWkView='table';paint();},
-  'btn-wk-chart':function(){indivWkView='chart';paint();},
   'btn-self-login':function(){doSelfLogin();},
   'btn-self-logout':function(){selfLogout();},
   'btn-self-save':function(){doSaveSelf();},
@@ -1120,7 +1122,7 @@ var CHANGE_ID={
   'sel-fy':function(el){fYear=el.value;paint();},
   'sel-fg':function(el){fGender=el.value;paint();},
   'sel-sk':function(el){sesKey=el.value;rankExpandName='';paint();},
-  'sel-indiv':function(el){indivMb=el.value;indivMoView='table';indivWkView='table';indivView='official';paint();},
+  'sel-indiv':function(el){indivMb=el.value;indivView='official';indivMoExpand='';indivWkExpand='';paint();},
   'sel-hmb':function(el){histMb=el.value;paint();},
   'self-name':function(el){selfLoginName=el.value;paint();},
   'job-self-mb':function(el){jobSelfMb=el.value;paint();},
@@ -1161,8 +1163,10 @@ var CLICK_ATTR=[
   ['data-bun-mode',function(el){bunMode=el.getAttribute('data-bun-mode');bunOrder=null;paint();}],
   ['data-att-name',function(el){toggleAtt(el.getAttribute('data-att-name'));}],
   ['data-ach-key',function(el){toggleAchievement(el.getAttribute('data-ach-name'),el.getAttribute('data-ach-key'));}],
-  ['data-indiv-name',function(el){indivMb=el.getAttribute('data-indiv-name');tableView='indiv';indivMoView='table';indivWkView='table';indivView='official';paint();}],
+  ['data-indiv-name',function(el){indivMb=el.getAttribute('data-indiv-name');tableView='indiv';indivView='official';indivMoExpand='';indivWkExpand='';paint();}],
   ['data-rank-expand',function(el){var name=el.getAttribute('data-rank-expand');rankExpandName=(rankExpandName===name)?'':name;paint();}],
+  ['data-mo-expand',function(el){var k=el.getAttribute('data-mo-expand');indivMoExpand=(indivMoExpand===k)?'':k;paint();}],
+  ['data-wk-expand',function(el){var k=el.getAttribute('data-wk-expand');indivWkExpand=(indivWkExpand===k)?'':k;paint();}],
   ['data-edit-id',function(el){if(!canEditHistory())return;var id=parseInt(el.getAttribute('data-edit-id'),10);var rec=S.find(function(x){return x.id===id;})||{};editId=id;editForm=rec.date?{date:rec.date,sh:rec.sh,hi:rec.hi}:{d:rec.d,sess:rec.sess,sh:rec.sh,hi:rec.hi};pDel=null;paint();}],
   ['data-edit-cancel',function(){editId=null;paint();}],
   ['data-edit-save',function(el){if(!canEditHistory())return;doEditSave(parseInt(el.getAttribute('data-edit-save'),10));}],
@@ -1175,6 +1179,7 @@ var CLICK_ATTR=[
   ['data-self-reset',function(el){selfResetPin(el.getAttribute('data-self-reset'));}],
   ['data-self-sub',function(el){selfSub=el.getAttribute('data-self-sub');paint();}],
   ['data-self-prac',function(el){selfPracSub=el.getAttribute('data-self-prac');paint();}],
+  ['data-self-off',function(el){selfOffSub=el.getAttribute('data-self-off');paint();}],
   ['data-self-del',function(el){delSelf(parseInt(el.getAttribute('data-self-del'),10));}],
   ['data-self-idx',function(el){toggleSelfShot(parseInt(el.getAttribute('data-self-idx'),10));}],
   ['data-pen-sub',function(el){penSubTab=el.getAttribute('data-pen-sub');penaltyView='list';jobView='list';paint();}],
@@ -2517,44 +2522,6 @@ function toggleAchievement(name,key){
   }
   svM();paint();
 }
-function barChartSVG(items,labelFn){
-  if(!items.length)return '<div class="emp" style="padding:20px 0">データがありません</div>';
-  var data=items.slice().reverse();
-  var n=data.length;
-  var VW=460,VH=160,pL=26,pB=22,pT=14,pR=6;
-  var cW=VW-pL-pR,cH=VH-pB-pT;
-  var svg='<svg viewBox="0 0 '+VW+' '+VH+'" style="width:100%;height:160px;display:block">';
-  // グリッド線
-  [0,0.25,0.5,0.75,1.0].forEach(function(v){
-    var y=pT+cH-v*cH;
-    svg+='<line x1="'+pL+'" y1="'+y+'" x2="'+(VW-pR)+'" y2="'+y+'" stroke="#e5e3da" stroke-width="1"/>';
-    svg+='<text x="'+(pL-3)+'" y="'+(y+3)+'" font-size="8" text-anchor="end" fill="#bbb">'+(v*100)+'</text>';
-  });
-  // X座標計算
-  function xPos(i){
-    if(n===1)return pL+cW/2;
-    return pL+i*(cW/(n-1));
-  }
-  // 折れ線パス
-  var pts=data.map(function(d,i){return{x:xPos(i),y:pT+cH-d.rate*cH,d:d};});
-  // 塗りつぶし領域
-  var area='M'+pts[0].x+','+(pT+cH);
-  pts.forEach(function(p){area+=' L'+p.x+','+p.y;});
-  area+=' L'+pts[pts.length-1].x+','+(pT+cH)+' Z';
-  svg+='<path d="'+area+'" fill="rgba(26,79,122,0.08)"/>';
-  // 折れ線
-  var line=pts.map(function(p,i){return(i===0?'M':'L')+p.x+','+p.y;}).join(' ');
-  svg+='<path d="'+line+'" fill="none" stroke="#1a4f7a" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>';
-  // データ点・ラベル
-  pts.forEach(function(p){
-    var col=p.d.rate>=0.6?'#2a6536':p.d.rate>=0.4?'#1a4f7a':p.d.rate>=0.2?'#8a5e10':'#a33030';
-    svg+='<circle cx="'+p.x+'" cy="'+p.y+'" r="4" fill="'+col+'" stroke="#fff" stroke-width="1.5"/>';
-    if(n<=12)svg+='<text x="'+p.x+'" y="'+(p.y-7)+'" font-size="8" text-anchor="middle" fill="'+col+'">'+(p.d.rate*100).toFixed(0)+'</text>';
-    svg+='<text x="'+p.x+'" y="'+(VH-5)+'" font-size="7" text-anchor="middle" fill="#aaa">'+labelFn(p.d)+'</text>';
-  });
-  svg+='</svg>';
-  return svg;
-}
 /* ======= 個人ページ（共通） ======= */
 /* 実績バッジ 1個ぶん */
 function personBadge(name,achObj,label,key){
@@ -2614,6 +2581,23 @@ function personProfileCard(name){
       +' ('+best.hi+'/'+best.sh+'本)</div>':'')
     +achRow+'</div>';
 }
+/* 記録内訳の展開行（的中/射数タップで表示） */
+function recBreakdownHTML(recs,cols){
+  var inner;
+  if(!recs.length){
+    inner='<div style="padding:8px 4px;font-size:12px;color:var(--faint)">この期間の記録はありません</div>';
+  }else{
+    inner=recs.map(function(e){
+      return '<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 4px;border-bottom:1px solid var(--ln2);font-size:12px">'
+        +'<span style="color:var(--sub)">'+recPeriodLabel(e)+'</span>'
+        +'<span><span style="font-weight:700;color:'+rc(e.sh?e.hi/e.sh:0)+'">'+(e.sh?(e.hi/e.sh*100).toFixed(1):'0.0')+'%</span>'
+          +'<span class="mono" style="color:var(--sub);margin-left:6px">'+e.hi+'/'+e.sh+'本</span></span>'
+        +'</div>';
+    }).join('');
+  }
+  return '<tr><td colspan="'+cols+'" style="padding:0;background:var(--sf)">'
+    +'<div style="padding:4px 8px 8px">'+inner+'</div></td></tr>';
+}
 /* 公式記録ビュー（月別成績 + 週別詳細） */
 function personOfficialView(name){
   var monthly=indivMonthly(name);
@@ -2625,52 +2609,43 @@ function personOfficialView(name){
     return d>0?'<span style="color:var(--good)">▲</span>':'<span style="color:var(--bad)">▼</span>';
   }
   // 月別ビュー
-  var moToggle='<div class="tb" style="margin-bottom:8px">'
-    +'<button id="btn-mo-table" class="t'+(indivMoView==='table'?' on':'')+'">テーブル</button>'
-    +'<button id="btn-mo-chart" class="t'+(indivMoView==='chart'?' on':'')+'">グラフ</button>'
-    +'</div>';
   var moContent;
-  if(indivMoView==='chart'){
-    moContent='<div style="background:var(--sf);border:1px solid var(--ln);border-radius:13px;padding:10px">'
-      +barChartSVG(monthly,function(d){return (parseInt(d.month.split('-')[1],10))+'月';})
-      +'</div>';
-  }else{
+  {
     var moRows='';
     monthly.forEach(function(m,i){
+      var moOpen=indivMoExpand===m.month;
       moRows+='<tr>'
         +'<td class="tl" style="font-size:12px">'+fm(m.month)+'</td>'
         +'<td style="font-weight:700;color:'+rc(m.rate)+'">'+(m.rate*100).toFixed(1)+'%</td>'
-        +'<td class="mono" style="color:var(--sub);font-size:12px">'+m.hi+'/'+m.sh+'</td>'
+        +'<td class="mono" style="color:'+(moOpen?'var(--acc)':'var(--sub)')+';font-size:12px;cursor:pointer;text-decoration:underline;text-decoration-style:dotted" data-mo-expand="'+esc(m.month)+'">'+m.hi+'/'+m.sh+'</td>'
         +'<td style="font-size:11px">'+trend(i)+'</td>'
-        +'<td style="font-size:12px;color:'+(m.rank<=3?'var(--warn)':'var(--sub)')+';font-weight:'+(m.rank<=3?700:400)+'">'+m.rank+'位</td>'
         +'</tr>';
+      if(moOpen){
+        moRows+=recBreakdownHTML(S.filter(function(e){return e.mb===name&&e.d===m.month;}).slice().sort(function(a,b){return recWeek(a)-recWeek(b);}),4);
+      }
     });
     moContent=monthly.length
       ?'<div class="tc"><table>'
-        +'<colgroup><col><col width="62"><col width="72"><col width="28"><col width="42"></colgroup>'
-        +'<thead><tr><th class="tl">月</th><th>的中率</th><th>的中/射数</th><th></th><th>順位</th></tr></thead>'
+        +'<colgroup><col><col width="62"><col width="72"><col width="28"></colgroup>'
+        +'<thead><tr><th class="tl">月</th><th>的中率</th><th>的中/射数</th><th></th></tr></thead>'
         +'<tbody>'+moRows+'</tbody></table></div>'
       :'<div class="emp" style="padding:20px 0">月別データがありません</div>';
   }
   // 週別ビュー
-  var wkToggle='<div class="tb" style="margin-bottom:8px">'
-    +'<button id="btn-wk-table" class="t'+(indivWkView==='table'?' on':'')+'">テーブル</button>'
-    +'<button id="btn-wk-chart" class="t'+(indivWkView==='chart'?' on':'')+'">グラフ</button>'
-    +'</div>';
   var wkData=weekly.slice(0,12);
   var wkContent;
-  if(indivWkView==='chart'){
-    wkContent='<div style="background:var(--sf);border:1px solid var(--ln);border-radius:13px;padding:10px">'
-      +barChartSVG(wkData,function(d){return parseInt(d.month.split('-')[1],10)+'/'+d.sess;})
-      +'</div>';
-  }else{
+  {
     var wkRows='';
     wkData.forEach(function(w){
+      var wkOpen=indivWkExpand===w.key;
       wkRows+='<tr>'
         +'<td class="tl" style="font-size:12px">'+fm(w.month)+' 第'+w.sess+'週</td>'
         +'<td style="font-weight:700;color:'+rc(w.rate)+'">'+(w.rate*100).toFixed(1)+'%</td>'
-        +'<td class="mono" style="color:var(--sub);font-size:12px">'+w.hi+'/'+w.sh+'</td>'
+        +'<td class="mono" style="color:'+(wkOpen?'var(--acc)':'var(--sub)')+';font-size:12px;cursor:pointer;text-decoration:underline;text-decoration-style:dotted" data-wk-expand="'+esc(w.key)+'">'+w.hi+'/'+w.sh+'</td>'
         +'</tr>';
+      if(wkOpen){
+        wkRows+=recBreakdownHTML(S.filter(function(e){return e.mb===name&&e.d===w.month&&recWeek(e)===w.sess;}),3);
+      }
     });
     wkContent=weekly.length
       ?'<div class="tc"><table>'
@@ -2682,9 +2657,9 @@ function personOfficialView(name){
       :'<div class="emp" style="padding:20px 0">週別データがありません</div>';
   }
   return '<p style="font-size:12px;font-weight:700;color:var(--sub);margin:0 0 6px">月別成績</p>'
-    +moToggle+moContent
+    +moContent
     +'<p style="font-size:12px;font-weight:700;color:var(--sub);margin:10px 0 6px">週別詳細</p>'
-    +wkToggle+wkContent;
+    +wkContent;
 }
 /* ======= 射癖分析（内訳seqを持つ記録のみ集計） ======= */
 function indivShotAnalysis(name){
@@ -2780,7 +2755,7 @@ function tIndivDetail(){
     +personProfileCard(name)
     +'<div class="tb" style="margin-bottom:10px">'
       +'<button id="btn-indiv-official" class="t'+(indivView==='official'?' on':'')+'">成績</button>'
-      +'<button id="btn-indiv-analysis" class="t'+(indivView==='analysis'?' on':'')+'">射癖分析</button>'
+      +'<button id="btn-indiv-analysis" class="t'+(indivView==='analysis'?' on':'')+'">分析</button>'
     +'</div>'
     +(indivView==='analysis'?personAnalysisView(name):personOfficialView(name));
 }
@@ -3050,16 +3025,16 @@ function doSelfLogin(){
   if(!/^\d{4}$/.test(pin)){fl('4桁の数字で入力してください',true);return;}
   if(!Pins[name]){
     Pins[name]=pinHash(pin);svPins();
-    myMb=name;svMe();selfLoginName='';selfSub='self';selfPracSub='input';selfForm={date:todayStr(),sh:'20',hi:''};selfMarks=[];
+    myMb=name;svMe();selfLoginName='';selfSub='official';selfPracSub='input';selfForm={date:todayStr(),sh:'20',hi:''};selfMarks=[];
     fl(name+' さんのマイページを作成しました');paint();
   }else if(Pins[name]===pinHash(pin)){
-    myMb=name;svMe();selfLoginName='';selfSub='self';selfPracSub='input';selfForm={date:todayStr(),sh:'20',hi:''};selfMarks=[];
+    myMb=name;svMe();selfLoginName='';selfSub='official';selfPracSub='input';selfForm={date:todayStr(),sh:'20',hi:''};selfMarks=[];
     fl('ログインしました');paint();
   }else{
     fl('PINが違います',true);
   }
 }
-function selfLogout(){myMb='';svMe();selfSub='self';selfPracSub='input';selfMarks=[];paint();}
+function selfLogout(){myMb='';svMe();selfSub='official';selfPracSub='input';selfMarks=[];paint();}
 function selfResetPin(name){if(!adminMode)return;delete Pins[name];svPins();fl(name+' のPINをリセットしました');paint();}
 /* --- 登録 / 削除 --- */
 function doSaveSelf(){
@@ -3124,13 +3099,17 @@ function tSelf(){
     +'<div style="flex:1"><div style="font-size:16px;font-weight:800">マイページ</div>'
     +'<div style="font-size:11px;color:var(--sub)">'+esc(myMb)+' さんとしてログイン中</div></div>'
     +'<button class="btn bh" style="padding:7px 10px" id="btn-self-logout">ログアウト</button></div>';
-  var subs=[['self','自主練'],['official','正規練']];
+  var subs=[['official','正規練'],['self','自主練']];
   var tabbar='<div class="tb">'+subs.map(function(kl){
     return '<button class="t'+(selfSub===kl[0]?' on':'')+'" data-self-sub="'+kl[0]+'">'+kl[1]+'</button>';
   }).join('')+'</div>';
   var body;
   if(selfSub==='official'){
-    body=personOfficialView(myMb);
+    body='<div class="tb" style="margin-bottom:10px">'
+      +'<button class="t'+(selfOffSub==='official'?' on':'')+'" data-self-off="official">成績</button>'
+      +'<button class="t'+(selfOffSub==='analysis'?' on':'')+'" data-self-off="analysis">分析</button>'
+      +'</div>'
+      +(selfOffSub==='analysis'?personAnalysisView(myMb):personOfficialView(myMb));
   }else{
     var ps=[['input','記録'],['stat','成績'],['rank','ランキング']];
     body='<div class="tb" style="margin-bottom:10px">'+ps.map(function(kl){
@@ -3145,7 +3124,7 @@ function migrateSelfSub(){
   if(selfSub==='input'){selfSub='self';selfPracSub='input';}
   else if(selfSub==='rank'){selfSub='self';selfPracSub='rank';}
   else if(selfSub==='record'){selfSub='official';}
-  if(selfSub!=='self'&&selfSub!=='official')selfSub='self';
+  if(selfSub!=='self'&&selfSub!=='official')selfSub='official';
   if(['input','stat','rank'].indexOf(selfPracSub)<0)selfPracSub='input';
 }
 function selfTotalHTML(sh,hi){
@@ -3215,8 +3194,21 @@ function selfPracticeView(name){
     +selfStatBox('通算的中',st.hi)+selfStatBox('通算射数',st.sh)+selfStatBox('的中率',(st.rate*100).toFixed(1)+'%')
     +'</div></div>';
   var monthly=selfMonthly(name);
+  var spRows='';
+  monthly.forEach(function(m){
+    spRows+='<tr>'
+      +'<td class="tl" style="font-size:12px">'+fm(m.month)+'</td>'
+      +'<td style="font-weight:700;color:'+rc(m.rate)+'">'+(m.rate*100).toFixed(1)+'%</td>'
+      +'<td class="mono" style="color:var(--sub);font-size:12px">'+m.hi+'/'+m.sh+'</td>'
+      +'</tr>';
+  });
   out+='<div class="card mb10"><p style="margin:0 0 6px;font-size:12px;font-weight:700;color:var(--sub)">月別 的中率（自主練）</p>'
-    +barChartSVG(monthly,function(d){return parseInt(d.month.split('-')[1],10)+'月';})+'</div>';
+    +(monthly.length
+      ?'<div class="tc"><table><colgroup><col><col width="66"><col width="76"></colgroup>'
+        +'<thead><tr><th class="tl">月</th><th>的中率</th><th>的中/射数</th></tr></thead>'
+        +'<tbody>'+spRows+'</tbody></table></div>'
+      :'<div class="emp" style="padding:16px 0">月別データがありません</div>')
+    +'</div>';
   var list=selfEntries(name).slice().sort(function(a,b){return b.id-a.id;});
   if(!list.length)out+='<div class="emp">まだ自主練の記録がありません</div>';
   else list.forEach(function(e){
