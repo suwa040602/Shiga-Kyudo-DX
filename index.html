@@ -2581,6 +2581,14 @@ function personProfileCard(name){
       +' ('+best.hi+'/'+best.sh+'本)</div>':'')
     +achRow+'</div>';
 }
+/* 記録内訳の並び替えキー（新しい順） */
+function recSortDesc(a,b){
+  var wd=recWeek(b)-recWeek(a);
+  if(wd)return wd;
+  var da=a.date||'',db=b.date||'';
+  if(da!==db)return db.localeCompare(da);
+  return (b.id||0)-(a.id||0);
+}
 /* 記録内訳の展開行（的中/射数タップで表示） */
 function recBreakdownHTML(recs,cols){
   var inner;
@@ -2621,7 +2629,7 @@ function personOfficialView(name){
         +'<td style="font-size:11px">'+trend(i)+'</td>'
         +'</tr>';
       if(moOpen){
-        moRows+=recBreakdownHTML(S.filter(function(e){return e.mb===name&&e.d===m.month;}).slice().sort(function(a,b){return recWeek(a)-recWeek(b);}),4);
+        moRows+=recBreakdownHTML(S.filter(function(e){return e.mb===name&&e.d===m.month;}).slice().sort(recSortDesc),4);
       }
     });
     moContent=monthly.length
@@ -2644,7 +2652,7 @@ function personOfficialView(name){
         +'<td class="mono" style="color:'+(wkOpen?'var(--acc)':'var(--sub)')+';font-size:12px;cursor:pointer;text-decoration:underline;text-decoration-style:dotted" data-wk-expand="'+esc(w.key)+'">'+w.hi+'/'+w.sh+'</td>'
         +'</tr>';
       if(wkOpen){
-        wkRows+=recBreakdownHTML(S.filter(function(e){return e.mb===name&&e.d===w.month&&recWeek(e)===w.sess;}),3);
+        wkRows+=recBreakdownHTML(S.filter(function(e){return e.mb===name&&e.d===w.month&&recWeek(e)===w.sess;}).slice().sort(recSortDesc),3);
       }
     });
     wkContent=weekly.length
