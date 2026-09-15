@@ -156,6 +156,20 @@ tbody tr:nth-child(even){background:var(--sec)}
 .bun-namebar-scroll{overflow-x:hidden}
 .bun-namebar .bun-name-cell{padding-bottom:4px;padding-top:4px}
 .bun-namebar table{margin:0}
+/* タップ感：押した瞬間に沈み込み、離すと弾んで戻ってから画面が切り替わる（分附表の中は連打するので対象外） */
+button,.mchip{transition:transform .15s ease,filter .15s ease}
+button:not(:disabled):active,.mchip:active{transform:scale(.93);filter:brightness(.85);transition-duration:0s}
+@keyframes tapBounce{0%{transform:scale(.93);filter:brightness(.85)}55%{transform:scale(1.04);filter:brightness(1)}100%{transform:scale(1)}}
+button.tap-bounce{animation:tapBounce .16s ease-out}
+.bun-sheet-wrap button,.bun-namebar button{transition:none}
+.bun-sheet-wrap button:active,.bun-namebar button:active{transform:none;filter:none}
+/* 画面が切り替わったときだけ中身を表示し直す。
+   中に position:fixed の要素（名前バー・モーダル）がある画面は transform でずれるので透明度のみ */
+@keyframes conFade{from{opacity:0}to{opacity:1}}
+@keyframes conSlide{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+#con.con-fade{animation:conFade .25s ease-out}
+#con.con-slide>*{animation:conSlide .28s cubic-bezier(.2,.8,.2,1)}
+@media (prefers-reduced-motion:reduce){button,.mchip{transition:none}button.tap-bounce,#con.con-fade,#con.con-slide>*{animation:none}}
 </style>
 </head>
 <body>
@@ -959,6 +973,26 @@ function paintTabs(){
     return '<button class="t'+(tab===kl[0]?' on':'')+'" data-tab="'+kl[0]+'">'+kl[1]+'</button>';
   }).join('');
 }
+/* 画面（タブ・サブ画面）が変わったときだけフェード。同期による再描画や分附セルのタップでは動かさない */
+var _conScreenKey=null;
+function conScreenKey(){
+  function v(x){return x===undefined?'':String(x);}
+  return [tab,
+    typeof bunStep!=='undefined'?bunStep:'',typeof bunViewMode!=='undefined'?bunViewMode:'',
+    typeof penSubTab!=='undefined'?penSubTab:'',typeof penaltyView!=='undefined'?penaltyView:'',
+    typeof jobView!=='undefined'?jobView:'',typeof tableView!=='undefined'?tableView:'',
+    typeof tMode!=='undefined'?tMode:'',typeof selfSub!=='undefined'?selfSub:'',
+    typeof selfPracSub!=='undefined'?selfPracSub:'',typeof selfOffSub!=='undefined'?selfOffSub:'',
+    typeof myMb!=='undefined'?(myMb?1:0):''].map(v).join('|');
+}
+function conFadeIfScreenChanged(el){
+  var k=conScreenKey();
+  if(_conScreenKey!==null&&k!==_conScreenKey){
+    el.classList.remove('con-fade','con-slide');void el.offsetWidth;
+    el.classList.add(el.querySelector('.modal-ov,.bun-namebar')?'con-fade':'con-slide');
+  }
+  _conScreenKey=k;
+}
 function paint(){
   if(tab==='table'&&!adminMode)tab='self'; // ロック解除時の取り残し防止
   if(overlay==='news')markNewsRead();
@@ -988,8 +1022,10 @@ function paint(){
   });
   var _wkScroll=document.getElementById('wk-modal-scroll');
   var _wkScrollTop=_wkScroll?_wkScroll.scrollTop:0;
-  document.getElementById('con').innerHTML=banner
+  var _con=document.getElementById('con');
+  _con.innerHTML=banner
     +(tab==='input'?tBun():tab==='table'?tTb():tab==='penalty'?tPenalty():tSelf());
+  conFadeIfScreenChanged(_con);
   renderOverlay();
   bindDynamic();
   var _wkScroll2=document.getElementById('wk-modal-scroll');
@@ -1266,6 +1302,26 @@ var CHANGE_ATTR=[
   ['data-sk',function(el){var k=el.getAttribute('data-sk');var i=sesSel.indexOf(k);if(el.checked){if(i<0)sesSel.push(k);}else{if(i>=0)sesSel.splice(i,1);}rankExpandName='';paint();}],
   ['data-meta-name',function(el){setMeta(el.getAttribute('data-meta-name'),el.getAttribute('data-meta-key'),el.value);}]
 ];
+/* ボタンは離した後の弾みを見せてから処理する（約0.13秒）。
+   分附表内・入力欄・ダウンロード/印刷/読込/生体認証（ユーザー操作直後でないと端末に止められる）は即時 */
+var TAP_DELAY=130,_tapBusy=false,TAP_NODELAY=/csv|print|export|import|bio/;
+function tapDispatch(ev){
+  var btn=ev.target&&ev.target.closest?ev.target.closest('button'):null;
+  var reduce=window.matchMedia&&matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if(!btn||btn.disabled||reduce||btn.closest('.bun-sheet-wrap,.bun-namebar')||TAP_NODELAY.test(btn.id||'')){
+    dispatch(ev,CLICK_ID,CLICK_ATTR);return;
+  }
+  if(_tapBusy)return;
+  _tapBusy=true;
+  btn.classList.remove('tap-bounce');void btn.offsetWidth;btn.classList.add('tap-bounce');
+  var fake={target:ev.target,type:ev.type,preventDefault:function(){},stopPropagation:function(){}};
+  setTimeout(function(){
+    _tapBusy=false;
+    if(!document.contains(btn))return;
+    btn.classList.remove('tap-bounce');
+    dispatch(fake,CLICK_ID,CLICK_ATTR);
+  },TAP_DELAY);
+}
 function _elId(t){return (t&&t.nodeType===1&&typeof t.id==='string')?t.id:'';}
 function dispatch(ev,byId,byAttr){
   var t=ev.target;
@@ -1300,7 +1356,7 @@ function initDelegation(){
     dbPull(_repaintUnlessBun);
     dbPullDraft(function(){_repaintUnlessBun();});
   });
-  document.addEventListener('click',function(ev){dispatch(ev,CLICK_ID,CLICK_ATTR);});
+  document.addEventListener('click',tapDispatch);
   document.addEventListener('change',function(ev){dispatch(ev,CHANGE_ID,CHANGE_ATTR);});
   document.addEventListener('input',function(ev){dispatch(ev,INPUT_ID,null);});
   document.addEventListener('keydown',function(ev){dispatch(ev,KEY_ID,null);});
@@ -3679,6 +3735,8 @@ function cssAttr(v){return String(v==null?'':v).replace(/\\/g,'\\\\').replace(/"
 initDelegation();
 load();
 
+/* iOS Safari で :active を効かせるための空リスナー */
+document.addEventListener('touchstart',function(){},{passive:true});
 </script>
 </body>
 </html>
