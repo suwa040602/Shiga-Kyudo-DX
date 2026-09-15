@@ -991,19 +991,24 @@ function conScreenState(){
     branch='penalty:'+penSubTab;
     depth=penSubTab==='jobs'?(jobView==='list'?0:1):(penaltyView==='detail'?1:0);
   }
-  else if(tab==='self'){depth=(typeof myMb!=='undefined'&&myMb)?1:0;}
   return {tab:tab,branch:branch,depth:depth};
 }
+var _conAnimTimer=0;
 function conFadeIfScreenChanged(el){
   var cur=conScreenState(),prev=_conScreen,cls='';
   _conScreen=cur;
+  /* 前回のアニメ用クラスが残ったままだと、同じ画面で再描画するたびに
+     新しい子要素がまたアニメーションしてしまうので、毎回必ず外す */
+  el.classList.remove('con-fade','con-slide','con-fwd','con-back');
   if(!prev)return;
   var hasFixed=!!el.querySelector('.modal-ov,.bun-namebar');
   if(cur.tab!==prev.tab)cls=hasFixed?'con-fade':'con-slide';
   else if(cur.branch===prev.branch&&cur.depth!==prev.depth)cls=hasFixed?'con-fade':(cur.depth>prev.depth?'con-fwd':'con-back');
   if(!cls)return;
-  el.classList.remove('con-fade','con-slide','con-fwd','con-back');void el.offsetWidth;
+  void el.offsetWidth;
   el.classList.add(cls);
+  clearTimeout(_conAnimTimer);
+  _conAnimTimer=setTimeout(function(){el.classList.remove('con-fade','con-slide','con-fwd','con-back');},400);
 }
 function paint(){
   if(tab==='table'&&!adminMode)tab='self'; // ロック解除時の取り残し防止
