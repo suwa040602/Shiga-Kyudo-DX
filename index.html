@@ -1594,9 +1594,19 @@ function reorderBunColumn(src,tgt){
   var wrap=document.querySelector('.bun-sheet-wrap');
   var sx=wrap?wrap.scrollLeft:0;
   var sy=wrap?wrap.scrollTop:0;
+  // ページ全体の縦スクロール位置も保持する（paintでinnerHTMLが作り直されるため）
+  var pageY=window.pageYOffset||document.documentElement.scrollTop||0;
   paint();
   var nw=document.querySelector('.bun-sheet-wrap');
   if(nw){nw.scrollLeft=sx;nw.scrollTop=sy;}
+  restorePageScroll(pageY);
+}
+/* paint後にページ縦スクロールを復元（描画直後と次フレームの2回） */
+function restorePageScroll(y){
+  if(!y)return;
+  function set(){try{window.scrollTo(0,y);}catch(e){document.documentElement.scrollTop=y;}}
+  set();
+  if(window.requestAnimationFrame)requestAnimationFrame(set);
 }
 function initBunDragDrop(){
   document.querySelectorAll('.bun-dh').forEach(function(handle){
