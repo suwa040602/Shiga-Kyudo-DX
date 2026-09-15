@@ -161,6 +161,18 @@ button,.mchip{transition:transform .15s ease,filter .15s ease}
 button:not(:disabled):active,.mchip:active{transform:scale(.93);filter:brightness(.85);transition-duration:0s}
 @keyframes tapBounce{0%{transform:scale(.93);filter:brightness(.85)}55%{transform:scale(1.04);filter:brightness(1)}100%{transform:scale(1)}}
 button.tap-bounce{animation:tapBounce .16s ease-out}
+/* 連結したタブ（.tb 内の .t）は1つだけ拡大縮小すると継ぎ目に白い隙間が出るので、
+   タブの帯（.tb）ごと沈んで弾ませ、押したタブは色で示す */
+.tb{transition:transform .15s ease}
+.tb:has(.t:not(:disabled):active){transform:scale(.97);transition-duration:0s}
+@keyframes tapBounceBar{0%{transform:scale(.97)}55%{transform:scale(1.015)}100%{transform:scale(1)}}
+.tb.tap-bounce{animation:tapBounceBar .16s ease-out}
+.tb .t:not(:disabled):active{transform:none;filter:none;background:var(--acc-bg);transition-duration:0s}
+.tb .t.on:not(:disabled):active{background:var(--acc);filter:brightness(.85)}
+@keyframes tapFlash{from{background-color:var(--acc-bg)}to{background-color:transparent}}
+@keyframes tapFlashOn{from{filter:brightness(.85)}to{filter:brightness(1)}}
+.tb .t.tap-bounce{animation:tapFlash .16s ease-out}
+.tb .t.on.tap-bounce{animation:tapFlashOn .16s ease-out}
 .bun-sheet-wrap button,.bun-namebar button{transition:none}
 .bun-sheet-wrap button:active,.bun-namebar button:active{transform:none;filter:none}
 /* 画面が切り替わったときだけ中身を表示し直す。
@@ -174,7 +186,7 @@ button.tap-bounce{animation:tapBounce .16s ease-out}
 #con.con-fwd>*{animation:conFwd .26s cubic-bezier(.2,.8,.2,1)}
 #con.con-back>*{animation:conBack .26s cubic-bezier(.2,.8,.2,1)}
 #con.con-fwd,#con.con-back{overflow-x:clip}
-@media (prefers-reduced-motion:reduce){button,.mchip{transition:none}button.tap-bounce,#con.con-fade,#con.con-slide>*,#con.con-fwd>*,#con.con-back>*{animation:none}}
+@media (prefers-reduced-motion:reduce){button,.mchip,.tb{transition:none}.tb:has(.t:active){transform:none}button.tap-bounce,.tb .t.tap-bounce,.tb.tap-bounce,#con.con-fade,#con.con-slide>*,#con.con-fwd>*,#con.con-back>*{animation:none}}
 </style>
 </head>
 <body>
@@ -1330,12 +1342,14 @@ function tapDispatch(ev){
   }
   if(_tapBusy)return;
   _tapBusy=true;
-  btn.classList.remove('tap-bounce');void btn.offsetWidth;btn.classList.add('tap-bounce');
+  var bar=(btn.classList.contains('t')&&btn.parentNode&&btn.parentNode.classList&&btn.parentNode.classList.contains('tb'))?btn.parentNode:null;
+  [btn,bar].forEach(function(x){if(x){x.classList.remove('tap-bounce');void x.offsetWidth;x.classList.add('tap-bounce');}});
   var fake={target:ev.target,type:ev.type,preventDefault:function(){},stopPropagation:function(){}};
   setTimeout(function(){
     _tapBusy=false;
     if(!document.contains(btn))return;
     btn.classList.remove('tap-bounce');
+    if(bar)setTimeout(function(){bar.classList.remove('tap-bounce');},60);
     dispatch(fake,CLICK_ID,CLICK_ATTR);
   },TAP_DELAY);
 }
