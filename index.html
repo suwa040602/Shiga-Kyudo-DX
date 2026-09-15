@@ -162,11 +162,11 @@ button:not(:disabled):active,.mchip:active{transform:scale(.93);filter:brightnes
 @keyframes tapBounce{0%{transform:scale(.93);filter:brightness(.85)}55%{transform:scale(1.04);filter:brightness(1)}100%{transform:scale(1)}}
 button.tap-bounce{animation:tapBounce .16s ease-out}
 /* 連結したタブ（.tb 内の .t）は1つだけ拡大縮小すると継ぎ目に白い隙間が出るので、
-   タブの帯（.tb）ごと沈んで弾ませ、押したタブは色で示す */
-.tb{transition:transform .15s ease}
-.tb:has(.t:not(:disabled):active){transform:scale(.97);transition-duration:0s}
-@keyframes tapBounceBar{0%{transform:scale(.97)}55%{transform:scale(1.015)}100%{transform:scale(1)}}
-.tb.tap-bounce{animation:tapBounceBar .16s ease-out}
+   ボタンの枠は動かさず、中の文字（.t-lb）だけ沈んで弾ませる。押したタブは色でも示す */
+.tb .t .t-lb{display:inline-block;transition:transform .15s ease}
+.tb .t:not(:disabled):active .t-lb{transform:scale(.88);transition-duration:0s}
+@keyframes tapBounceLabel{0%{transform:scale(.88)}55%{transform:scale(1.08)}100%{transform:scale(1)}}
+.tb .t.tap-bounce .t-lb{animation:tapBounceLabel .16s ease-out}
 .tb .t:not(:disabled):active{transform:none;filter:none;background:var(--acc-bg);transition-duration:0s}
 .tb .t.on:not(:disabled):active{background:var(--acc);filter:brightness(.85)}
 @keyframes tapFlash{from{background-color:var(--acc-bg)}to{background-color:transparent}}
@@ -186,7 +186,7 @@ button.tap-bounce{animation:tapBounce .16s ease-out}
 #con.con-fwd>*{animation:conFwd .26s cubic-bezier(.2,.8,.2,1)}
 #con.con-back>*{animation:conBack .26s cubic-bezier(.2,.8,.2,1)}
 #con.con-fwd,#con.con-back{overflow-x:clip}
-@media (prefers-reduced-motion:reduce){button,.mchip,.tb{transition:none}.tb:has(.t:active){transform:none}button.tap-bounce,.tb .t.tap-bounce,.tb.tap-bounce,#con.con-fade,#con.con-slide>*,#con.con-fwd>*,#con.con-back>*{animation:none}}
+@media (prefers-reduced-motion:reduce){button,.mchip,.tb .t .t-lb{transition:none}.tb .t:active .t-lb{transform:none}button.tap-bounce,.tb .t.tap-bounce,.tb .t.tap-bounce .t-lb,#con.con-fade,#con.con-slide>*,#con.con-fwd>*,#con.con-back>*{animation:none}}
 </style>
 </head>
 <body>
@@ -987,7 +987,7 @@ function paintTabs(){
   T.push(['penalty','罰則'],['self','マイページ']);
   var el=document.getElementById('tabs');
   el.innerHTML=T.map(function(kl){
-    return '<button class="t'+(tab===kl[0]?' on':'')+'" data-tab="'+kl[0]+'">'+kl[1]+'</button>';
+    return '<button class="t'+(tab===kl[0]?' on':'')+'" data-tab="'+kl[0]+'"><span class="t-lb">'+kl[1]+'</span></button>';
   }).join('');
 }
 /* 画面切替アニメーション
@@ -1342,14 +1342,12 @@ function tapDispatch(ev){
   }
   if(_tapBusy)return;
   _tapBusy=true;
-  var bar=(btn.classList.contains('t')&&btn.parentNode&&btn.parentNode.classList&&btn.parentNode.classList.contains('tb'))?btn.parentNode:null;
-  [btn,bar].forEach(function(x){if(x){x.classList.remove('tap-bounce');void x.offsetWidth;x.classList.add('tap-bounce');}});
+  btn.classList.remove('tap-bounce');void btn.offsetWidth;btn.classList.add('tap-bounce');
   var fake={target:ev.target,type:ev.type,preventDefault:function(){},stopPropagation:function(){}};
   setTimeout(function(){
     _tapBusy=false;
     if(!document.contains(btn))return;
     btn.classList.remove('tap-bounce');
-    if(bar)setTimeout(function(){bar.classList.remove('tap-bounce');},60);
     dispatch(fake,CLICK_ID,CLICK_ATTR);
   },TAP_DELAY);
 }
@@ -1749,8 +1747,8 @@ function tBun(){
       +'<input id="bun-date" type="date" value="'+bunDate+'">'
       +'<label>種別</label>'
       +'<div class="tb" style="margin-bottom:4px">'
-        +'<button class="t'+(bunMode==='normal'?' on':'')+'" data-bun-mode="normal">正規練</button>'
-        +'<button class="t'+(bunMode==='hyakusha'?' on':'')+'" data-bun-mode="hyakusha">100射会</button>'
+        +'<button class="t'+(bunMode==='normal'?' on':'')+'" data-bun-mode="normal"><span class="t-lb">正規練</span></button>'
+        +'<button class="t'+(bunMode==='hyakusha'?' on':'')+'" data-bun-mode="hyakusha"><span class="t-lb">100射会</span></button>'
       +'</div>'
       +'<div style="font-size:11px;color:'+(bunMode?'var(--sub)':'var(--warn,#b7800a)')+';margin-bottom:4px">'
         +(bunMode==='hyakusha'
@@ -1817,8 +1815,8 @@ function tBun(){
 
   // ---- 表示モード切替バー ----
   var modeBar='<div class="tb">'
-    +'<button id="btn-bun-view-table" class="t'+(bunViewMode==='table'?' on':'')+'">一覧表</button>'
-    +'<button id="btn-bun-view-round" class="t'+(bunViewMode==='round'?' on':'')+'">ローテーション</button>'
+    +'<button id="btn-bun-view-table" class="t'+(bunViewMode==='table'?' on':'')+'"><span class="t-lb">一覧表</span></button>'
+    +'<button id="btn-bun-view-round" class="t'+(bunViewMode==='round'?' on':'')+'"><span class="t-lb">ローテーション</span></button>'
     +'</div>';
 
   var inputArea='';
@@ -2106,8 +2104,8 @@ function inPenaltyPeriod(name,dateStr){
 }
 function tPenalty(){
   var subNav='<div class="tb">'
-    +'<button data-pen-sub="penalty" class="t'+(penSubTab==='penalty'?' on':'')+'">罰則一覧</button>'
-    +'<button data-pen-sub="jobs" class="t'+(penSubTab==='jobs'?' on':'')+'">求人</button>'
+    +'<button data-pen-sub="penalty" class="t'+(penSubTab==='penalty'?' on':'')+'"><span class="t-lb">罰則一覧</span></button>'
+    +'<button data-pen-sub="jobs" class="t'+(penSubTab==='jobs'?' on':'')+'"><span class="t-lb">求人</span></button>'
     +'</div>';
   if(penSubTab==='jobs')return subNav+tJobs();
   if(penaltyView==='detail')return subNav+tPenaltyDetail();
@@ -2390,8 +2388,8 @@ function filterLabel(){
 function tTb(){
   if(tableView==='indiv')return tIndivDetail();
   var main='<div class="tb">'
-    +'<button id="btn-mo" class="t'+(tMode==='monthly'?' on':'')+'">月別</button>'
-    +'<button id="btn-se" class="t'+(tMode==='session'?' on':'')+'">週別</button>'
+    +'<button id="btn-mo" class="t'+(tMode==='monthly'?' on':'')+'"><span class="t-lb">月別</span></button>'
+    +'<button id="btn-se" class="t'+(tMode==='session'?' on':'')+'"><span class="t-lb">週別</span></button>'
     +'</div>'+(tMode==='monthly'?mMonthly():mSession());
   var hist='<div style="margin-top:20px;border-top:1px solid var(--ln);padding-top:14px">'
     +'<button id="btn-hist-toggle" style="width:100%;display:flex;align-items:center;justify-content:space-between;padding:11px 14px;border:1px solid var(--ln2);border-radius:10px;background:var(--sf);cursor:pointer;font-family:inherit">'
@@ -2919,8 +2917,8 @@ function tIndivDetail(){
     +'</div>'
     +personProfileCard(name)
     +'<div class="tb" style="margin-bottom:10px">'
-      +'<button id="btn-indiv-official" class="t'+(indivView==='official'?' on':'')+'">成績</button>'
-      +'<button id="btn-indiv-analysis" class="t'+(indivView==='analysis'?' on':'')+'">分析</button>'
+      +'<button id="btn-indiv-official" class="t'+(indivView==='official'?' on':'')+'"><span class="t-lb">成績</span></button>'
+      +'<button id="btn-indiv-analysis" class="t'+(indivView==='analysis'?' on':'')+'"><span class="t-lb">分析</span></button>'
     +'</div>'
     +(indivView==='analysis'?personAnalysisView(name):personOfficialView(name));
 }
@@ -3266,19 +3264,19 @@ function tSelf(){
     +'<button class="btn bh" style="padding:7px 10px" id="btn-self-logout">ログアウト</button></div>';
   var subs=[['official','正規練'],['self','自主練']];
   var tabbar='<div class="tb">'+subs.map(function(kl){
-    return '<button class="t'+(selfSub===kl[0]?' on':'')+'" data-self-sub="'+kl[0]+'">'+kl[1]+'</button>';
+    return '<button class="t'+(selfSub===kl[0]?' on':'')+'" data-self-sub="'+kl[0]+'"><span class="t-lb">'+kl[1]+'</span></button>';
   }).join('')+'</div>';
   var body;
   if(selfSub==='official'){
     body='<div class="tb" style="margin-bottom:10px">'
-      +'<button class="t'+(selfOffSub==='official'?' on':'')+'" data-self-off="official">成績</button>'
-      +'<button class="t'+(selfOffSub==='analysis'?' on':'')+'" data-self-off="analysis">分析</button>'
+      +'<button class="t'+(selfOffSub==='official'?' on':'')+'" data-self-off="official"><span class="t-lb">成績</span></button>'
+      +'<button class="t'+(selfOffSub==='analysis'?' on':'')+'" data-self-off="analysis"><span class="t-lb">分析</span></button>'
       +'</div>'
       +(selfOffSub==='analysis'?personAnalysisView(myMb):personOfficialView(myMb));
   }else{
     var ps=[['input','記録'],['stat','成績'],['rank','ランキング']];
     body='<div class="tb" style="margin-bottom:10px">'+ps.map(function(kl){
-      return '<button class="t'+(selfPracSub===kl[0]?' on':'')+'" data-self-prac="'+kl[0]+'">'+kl[1]+'</button>';
+      return '<button class="t'+(selfPracSub===kl[0]?' on':'')+'" data-self-prac="'+kl[0]+'"><span class="t-lb">'+kl[1]+'</span></button>';
     }).join('')+'</div>'
       +(selfPracSub==='stat'?selfPracticeView(myMb):selfPracSub==='rank'?selfRankView():selfInputView());
   }
