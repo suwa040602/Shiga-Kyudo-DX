@@ -169,7 +169,12 @@ button.tap-bounce{animation:tapBounce .16s ease-out}
 @keyframes conSlide{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
 #con.con-fade{animation:conFade .25s ease-out}
 #con.con-slide>*{animation:conSlide .28s cubic-bezier(.2,.8,.2,1)}
-@media (prefers-reduced-motion:reduce){button,.mchip{transition:none}button.tap-bounce,#con.con-fade,#con.con-slide>*{animation:none}}
+@keyframes conFwd{from{opacity:0;transform:translateX(36px)}to{opacity:1;transform:none}}
+@keyframes conBack{from{opacity:0;transform:translateX(-36px)}to{opacity:1;transform:none}}
+#con.con-fwd>*{animation:conFwd .26s cubic-bezier(.2,.8,.2,1)}
+#con.con-back>*{animation:conBack .26s cubic-bezier(.2,.8,.2,1)}
+#con.con-fwd,#con.con-back{overflow-x:clip}
+@media (prefers-reduced-motion:reduce){button,.mchip{transition:none}button.tap-bounce,#con.con-fade,#con.con-slide>*,#con.con-fwd>*,#con.con-back>*{animation:none}}
 </style>
 </head>
 <body>
@@ -973,25 +978,32 @@ function paintTabs(){
     return '<button class="t'+(tab===kl[0]?' on':'')+'" data-tab="'+kl[0]+'">'+kl[1]+'</button>';
   }).join('');
 }
-/* 画面（タブ・サブ画面）が変わったときだけフェード。同期による再描画や分附セルのタップでは動かさない */
-var _conScreenKey=null;
-function conScreenKey(){
-  function v(x){return x===undefined?'':String(x);}
-  return [tab,
-    typeof bunStep!=='undefined'?bunStep:'',typeof bunViewMode!=='undefined'?bunViewMode:'',
-    typeof penSubTab!=='undefined'?penSubTab:'',typeof penaltyView!=='undefined'?penaltyView:'',
-    typeof jobView!=='undefined'?jobView:'',typeof tableView!=='undefined'?tableView:'',
-    typeof tMode!=='undefined'?tMode:'',typeof selfSub!=='undefined'?selfSub:'',
-    typeof selfPracSub!=='undefined'?selfPracSub:'',typeof selfOffSub!=='undefined'?selfOffSub:'',
-    typeof myMb!=='undefined'?(myMb?1:0):''].map(v).join('|');
+/* 画面切替アニメーション
+   ・下のタブが変わった → 下から浮き上がる
+   ・同じタブ内で奥へ進む／戻る（分附ウィザード、詳細画面など） → 右から／左から横スライド
+   ・並列のサブタブ（月別/週別、罰則一覧/求人、一覧表/ローテーション等）や同期による再描画 → 動かさない */
+var _conScreen=null;
+function conScreenState(){
+  var branch=tab,depth=0;
+  if(tab==='input'){depth=Math.max(0,['mo-sess','att','config','input'].indexOf(bunStep));}
+  else if(tab==='table'){depth=(typeof tableView!=='undefined'&&tableView==='indiv')?1:0;}
+  else if(tab==='penalty'){
+    branch='penalty:'+penSubTab;
+    depth=penSubTab==='jobs'?(jobView==='list'?0:1):(penaltyView==='detail'?1:0);
+  }
+  else if(tab==='self'){depth=(typeof myMb!=='undefined'&&myMb)?1:0;}
+  return {tab:tab,branch:branch,depth:depth};
 }
 function conFadeIfScreenChanged(el){
-  var k=conScreenKey();
-  if(_conScreenKey!==null&&k!==_conScreenKey){
-    el.classList.remove('con-fade','con-slide');void el.offsetWidth;
-    el.classList.add(el.querySelector('.modal-ov,.bun-namebar')?'con-fade':'con-slide');
-  }
-  _conScreenKey=k;
+  var cur=conScreenState(),prev=_conScreen,cls='';
+  _conScreen=cur;
+  if(!prev)return;
+  var hasFixed=!!el.querySelector('.modal-ov,.bun-namebar');
+  if(cur.tab!==prev.tab)cls=hasFixed?'con-fade':'con-slide';
+  else if(cur.branch===prev.branch&&cur.depth!==prev.depth)cls=hasFixed?'con-fade':(cur.depth>prev.depth?'con-fwd':'con-back');
+  if(!cls)return;
+  el.classList.remove('con-fade','con-slide','con-fwd','con-back');void el.offsetWidth;
+  el.classList.add(cls);
 }
 function paint(){
   if(tab==='table'&&!adminMode)tab='self'; // ロック解除時の取り残し防止
