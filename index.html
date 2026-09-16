@@ -213,7 +213,7 @@ button.tap-bounce{animation:tapBounce .16s ease-out}
    ・マイナー : 機能の追加・仕様の変更（パッチは0に戻す）
    ・パッチ : バグ修正・見た目の微調整・名称変更など
    履歴: v1 build1(6/8 端末内版) / v2 build53(6/13 Firebase共有) / v3 build117(7/2 日付ベース記録) / v4 build170(7/15 4タブ構成) */
-var APP_VERSION='4.11.1',APP_BUILD=215;
+var APP_VERSION='4.12.0',APP_BUILD=216;
 (function(){var el=document.getElementById('app-ver');if(el)el.textContent='v'+APP_VERSION+' (build '+APP_BUILD+')';})();
 var SEED_E=[];
 var SEED_M=[];
@@ -570,7 +570,7 @@ var pinPendingType=null,pinPendingVal='';
 var wipeStep=0;
 var seedStep=0;   // 名簿順に振り直す（0=通常 / 1=確認中）
 var P=[],KP='kyudo_p1',penaltyView='list',penaltyMb='';
-var penForm={kind:'add',ptype:0,wtype:0,mb:'',date:'',pts:0,note:''};
+var penForm={kind:'add',ptype:0,wtype:0,mb:'',date:'',pts:0,note:'',heavy:false};
 var Jobs=[],KJ='kyudo_jobs_v1';
 var penSubTab='penalty'; // 'penalty' or 'jobs'
 var jobSelfMb='',jobView='list',jobId=null;
@@ -1273,7 +1273,8 @@ var CHANGE_ID={
   'pen-wtype':function(el){penForm.wtype=+el.value;paint();},
   'sf-date':function(el){selfForm.date=el.value;},
   'inp-import':function(el){doImport(el.files[0]);el.value='';},
-  'news-important':function(el){newsForm.important=el.checked;paint();}
+  'news-important':function(el){newsForm.important=el.checked;paint();},
+  'pen-heavy':function(el){penForm.heavy=el.checked;paint();}
 };
 var INPUT_ID={
   'news-title':function(el){newsForm.title=el.value;},
@@ -2095,9 +2096,15 @@ function canEditP(){return adminMode||shonaiMode;}
 function canEditHistory(){return adminMode;} // 履歴の編集（月・週変更）は管理者限定。削除はcanEditPのまま（管理者+渉内）
 function penStats(name){
   var all=P.filter(function(e){return e.mb===name;});
-  var add=0,red=0;
-  all.forEach(function(e){if(e.kind==='add')add+=e.pts;else red+=e.pts;});
-  return{add:add,red:red,net:Math.max(0,add-red)};
+  // 日付順（同日は登録順）に計算し、各時点で0点未満にしない。
+  // 残ポイントを超えた消化点は切り捨て（次の罰則へ繰り越さない）。
+  all.sort(function(a,b){return a.date<b.date?-1:a.date>b.date?1:(a.id-b.id);});
+  var add=0,red=0,net=0;
+  all.forEach(function(e){
+    if(e.kind==='add'){add+=e.pts;net+=e.pts;}
+    else{red+=e.pts;net=Math.max(0,net-e.pts);}
+  });
+  return{add:add,red:red,net:net};
 }
 function inPenaltyPeriod(name,dateStr){
   var t=new Date(dateStr).getTime();
@@ -2136,7 +2143,12 @@ function tPenalty(){
         :'<label>作業内容</label><select id="pen-wtype" style="width:100%">'+wtOpts+'</select>'
          +(curWtype&&curWtype.pts===0?'<label>点数</label><input id="pen-cpts" type="number" min="1" value="'+(penForm.pts||'')+'">':''))
       +'<label>メモ（任意）</label><input id="pen-note" type="text" value="'+esc(penForm.note||'')+'" placeholder="例：○月○日の練習">'
-      +(heavy?'<div style="padding:8px 10px;background:#fdf0f0;border-radius:8px;color:var(--bad);font-size:12px;margin:6px 0">⚠️ 罰則期間中のため +5点（重罰則）が自動加算されます</div>':'')
+      +(penForm.kind==='add'
+        ?(heavy?'<div style="padding:8px 10px;background:#fdf0f0;border-radius:8px;color:var(--bad);font-size:12px;margin:6px 0">⚠️ 罰則期間中です（直近30日以内に罰則あり）</div>':'')
+         +'<label class="wkchk'+(penForm.heavy?' on':'')+'" style="margin-top:10px;width:auto">'
+           +'<input id="pen-heavy" type="checkbox"'+(penForm.heavy?' checked':'')+'>'
+           +'<span>重罰則（+5点）</span></label>'
+        :'')
       +'<button id="btn-pen-save" class="btn prim" style="width:100%;margin-top:10px">記録する</button>'
       +'</div>';
   }
@@ -2353,7 +2365,7 @@ function doSavePenalty(){
     if(!pt)return fl('種類を選択してください',true);
     var pts=pt.pts||(penForm.pts>0?penForm.pts:0);
     if(!pts)return fl('点数を入力してください',true);
-    var extra=inPenaltyPeriod(penForm.mb,penForm.date)?5:0;
+    var extra=penForm.heavy?5:0;
     e.ptype=penForm.ptype;e.pts=pts+extra;e.extra=extra;
   }else{
     var wt=WTYPES.find(function(t){return t.n===penForm.wtype;});
@@ -2364,7 +2376,7 @@ function doSavePenalty(){
   }
   P.push(e);svP();
   fl(penForm.mb+'の'+(penForm.kind==='add'?'罰則':'消化')+'を記録しました（'+e.pts+'点）');
-  penForm.mb='';penForm.note='';paint();
+  penForm.mb='';penForm.note='';penForm.heavy=false;paint();
 }
 function delPenalty(id){P=P.filter(function(e){return e.id!==id;});svP();paint();}
 
