@@ -213,7 +213,7 @@ button.tap-bounce{animation:tapBounce .16s ease-out}
    ・マイナー : 機能の追加・仕様の変更（パッチは0に戻す）
    ・パッチ : バグ修正・見た目の微調整・名称変更など
    履歴: v1 build1(6/8 端末内版) / v2 build53(6/13 Firebase共有) / v3 build117(7/2 日付ベース記録) / v4 build170(7/15 4タブ構成) */
-var APP_VERSION='4.13.3',APP_BUILD=220;
+var APP_VERSION='4.14.0',APP_BUILD=221;
 (function(){var el=document.getElementById('app-ver');if(el)el.textContent='v'+APP_VERSION+' (build '+APP_BUILD+')';})();
 var SEED_E=[];
 var SEED_M=[];
@@ -247,7 +247,8 @@ var CLIENT_ID='c'+Date.now().toString(36)+Math.random().toString(36).slice(2,8);
 var _loading=true,_everHadRemoteData=false,_lastKnownRemoteTs=0;
 var _dbTimer=null,_dirty={};               // セクション単位のダーティ集合
 var _inflight={};                          // 送信済み・応答待ちのセクション（リモート上書きから保護）
-var _draftTimer=null,_draftDirty={},_draftFull=false; // 下書き：列単位/構造変更
+var _draftTimer=null,_draftDirty={},_draftFull=false,_draftMeta=false; // 下書き：列単位/構造変更
+var _draftSent={};   // 名前→最後に自分が送った列の内容。受信がこれと同じなら自分のエコー
 var _draftBannerDismissed=false,bunDraftRemote=null;
 
 function _dot(col,tip){var el=document.getElementById('sync-dot');if(el){el.style.background=col;el.title=tip;}}
@@ -398,6 +399,10 @@ function hasBunInput(){
 }
 function _repaintUnlessBun(){if(!(tab==='input'&&hasBunInput()))paint();}
 
+/* 分附の下書き(kyudo/bunDraft)は本体DBの子なので、本体ストリームにも流れてくる。
+   入力中は0.5秒ごとに書き込むため、これで全体取り直しを走らせるとDB全体の再取得が
+   連発し、送信前のローカル変更（出席など）が巻き戻る。専用リスナーに任せる。 */
+function _isDraftPath(path){return !!path&&/^\/bunDraft(\/|$)/.test(path);}
 /* ---- リアルタイム購読（put=全体 / patch=差分） ---- */
 var _es=null;
 function dbListen(){
@@ -408,6 +413,7 @@ function dbListen(){
     src.addEventListener('put',function(e){
       try{
         var p=JSON.parse(e.data);var path=p&&p.path;var d=p&&p.data;
+        if(_isDraftPath(path))return;                     // 下書きは専用リスナーが処理（本体を取り直さない）
         if(path!=='/'){dbPull(_repaintUnlessBun);return;} // 部分putは全体を取り直す
         if(!d||!d.S)return;
         if(d.by===CLIENT_ID)return;                       // 自分の書き込み
@@ -419,6 +425,7 @@ function dbListen(){
     src.addEventListener('patch',function(e){
       try{
         var p=JSON.parse(e.data);var path=p&&p.path;var d=p&&p.data;
+        if(_isDraftPath(path))return;                     // 下書きは専用リスナーが処理
         if(path!=='/'){dbPull(_repaintUnlessBun);return;}
         if(!d)return;
         if(d.by===CLIENT_ID)return;                       // 自分の書き込み（エコー抑止）
@@ -437,31 +444,56 @@ function dbListen(){
 function _buildDraftPayload(){
   return {d:bunD,sess:bunSess,date:bunDate,mode:bunMode,tate:bunTate,tateList:bunTateList,order:bunOrder,data:bunData,updatedAt:Date.now(),by:CLIENT_ID};
 }
+/* 列の中身を比較用の文字列にする（Firebaseは末尾のnullを落とすので長さを揃える） */
+function _colSig(col){
+  var n=bunShotCount(),a=(col||[]).slice();
+  while(a.length<n)a.push(null);
+  a.length=n;
+  return JSON.stringify(a.map(function(v){return v===undefined?null:v;}));
+}
 function scheduleDbPushDraft(name){
   if(_loading)return;
-  if(name==null)_draftFull=true; else _draftDirty[name]=true;
+  // name省略＝並べ替えなどの構造変更。全体PUTにすると他端末が入力中の列まで
+  // 手元の内容で消してしまうので、data以外のキーだけを送るPATCHにする。
+  if(name==null)_draftMeta=true; else _draftDirty[name]=true;
   if(_draftTimer)clearTimeout(_draftTimer);
   _draftTimer=setTimeout(_flushDraft,500);
 }
-function dbPushDraft(){ _draftFull=true; _flushDraft(); } // 構造変更などの全体PUT
+/* 下書きの作成・作り直し。既に下書きがある時はPUTせず、
+   構造＋自分の全列をPATCHでマージする（他端末の列を消さない）。 */
+function dbPushDraft(){
+  if(hasBunDraft()){
+    _draftMeta=true;
+    Object.keys(bunData).forEach(function(nm){_draftDirty[nm]=true;});
+  }else{
+    _draftFull=true;
+  }
+  _flushDraft();
+}
 function _flushDraft(){
   if(_draftTimer){clearTimeout(_draftTimer);_draftTimer=null;}
   if(_draftFull){
-    _draftFull=false;_draftDirty={};
+    _draftFull=false;_draftMeta=false;_draftDirty={};
+    Object.keys(bunData).forEach(function(nm){_draftSent[nm]=_colSig(bunData[nm]);});
     fetch(DRAFT_DB+'.json',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(_buildDraftPayload())})
       .catch(function(){});
     return;
   }
   var names=Object.keys(_draftDirty);
-  if(!names.length)return;
-  _draftDirty={};
+  var meta=_draftMeta;
+  if(!names.length&&!meta)return;
+  _draftDirty={};_draftMeta=false;
   var body={updatedAt:Date.now(),by:CLIENT_ID};
-  names.forEach(function(nm){body['data/'+nm]=bunData[nm]||null;}); // 変更列のみ深いPATCH
+  if(meta){ // dataは触らない
+    body.d=bunD;body.sess=bunSess;body.date=bunDate;body.mode=bunMode;
+    body.tate=bunTate;body.tateList=bunTateList;body.order=bunOrder||null;
+  }
+  names.forEach(function(nm){body['data/'+nm]=bunData[nm]||null;_draftSent[nm]=_colSig(bunData[nm]);}); // 変更列のみ深いPATCH
   fetch(DRAFT_DB+'.json',{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
-    .catch(function(){names.forEach(function(nm){_draftDirty[nm]=true;});});
+    .catch(function(){names.forEach(function(nm){_draftDirty[nm]=true;});if(meta)_draftMeta=true;});
 }
 function dbDeleteDraft(){
-  _draftFull=false;_draftDirty={};
+  _draftFull=false;_draftMeta=false;_draftDirty={};_draftSent={};
   fetch(DRAFT_DB+'.json',{method:'PUT',headers:{'Content-Type':'application/json'},body:'null'})
     .catch(function(){});
   bunDraftRemote=null;
@@ -503,11 +535,30 @@ function _syncBunCellsToDom(){ // スクロール位置を保ったままセル�
   });
   return updated;
 }
+/* 受信した列を手元に取り込む。次の3つは取り込まない：
+   ・自分が送った内容がそのまま返ってきたエコー（往復中のタップを巻き戻すため）
+   ・まだ送っていない手元の入力がある列（手元が最新）
+   ・送信中で結果待ちの列 */
+function _applyDraftCol(nm,col){
+  if(!bunDraftRemote)bunDraftRemote={};
+  if(!bunDraftRemote.data)bunDraftRemote.data={};
+  bunDraftRemote.data[nm]=col;
+  if(_draftDirty[nm])return false;
+  if(_draftSent[nm]===_colSig(col))return false;
+  if(tab==='input'&&bunStep==='input'){bunData[nm]=col;return true;}
+  return false;
+}
+function _applyDraftData(obj){
+  var hit=false;
+  Object.keys(obj).forEach(function(nm){if(_applyDraftCol(nm,_normCol(obj[nm])))hit=true;});
+  // 手元にしか無い列（相手がまだ知らない列）は消さない
+  return hit;
+}
 function _refreshDraftAfterPull(){
   if(tab==='input'&&bunStep==='input'){
     if(bunDraftRemote&&bunDraftRemote.data){
-      bunData={};Object.keys(bunDraftRemote.data).forEach(function(nm){bunData[nm]=bunDraftRemote.data[nm];});
-      if(bunDraftRemote.order)bunOrder=bunDraftRemote.order;
+      _applyDraftData(bunDraftRemote.data);
+      if(bunDraftRemote.order&&!_draftMeta)bunOrder=bunDraftRemote.order;
       if(!_syncBunCellsToDom())paint();
     }else{paint();}
   }else if(tab==='input'&&bunStep==='mo-sess'){paint();}
@@ -515,50 +566,82 @@ function _refreshDraftAfterPull(){
 /* 下書きが「実体として存在する」か。列だけのpatchで作られた空オブジェクトで
    新規作成が塞がれてしまわないよう、日付を持つものだけを進行中とみなす。 */
 function hasBunDraft(){var d=bunDraftRemote;return !!(d&&(d.d||d.date));}
+function _draftRepaint(){
+  if(tab==='input'&&bunStep==='input'){if(!_syncBunCellsToDom())paint();}
+  else if(tab==='input'&&bunStep==='mo-sess')paint();
+}
+/* put=そのパスの中身が丸ごと置き換わった通知 */
+function _onDraftPut(e){
+  try{
+    var p=JSON.parse(e.data),path=p&&p.path,d=p&&p.data;
+    if(path==='/'){
+      if(!d||!d.d){ // 下書きが削除された（保存・破棄された）
+        bunDraftRemote=null;_draftSent={};
+        if(tab==='input'&&bunStep==='mo-sess')paint();
+        return;
+      }
+      if(d.by===CLIENT_ID){bunDraftRemote=_normDraft(d);return;} // 自分の書き込み
+      var nd=_normDraft(d);
+      bunDraftRemote=nd;
+      if(tab==='input'&&bunStep==='input'){
+        if(nd.data)_applyDraftData(nd.data);
+        if(nd.order&&!_draftMeta)bunOrder=nd.order;
+      }
+      _draftRepaint();
+      return;
+    }
+    if(path==='/data'){
+      if(!bunDraftRemote){dbPullDraft(_refreshDraftAfterPull);return;}
+      var obj={};if(d)Object.keys(d).forEach(function(nm){obj[nm]=_normCol(d[nm]);});
+      bunDraftRemote.data=obj;
+      _applyDraftData(obj);
+      _draftRepaint();
+      return;
+    }
+    var m=path&&path.match(/^\/data\/(.+)$/);
+    if(m){
+      if(!bunDraftRemote){dbPullDraft(_refreshDraftAfterPull);return;}
+      _applyDraftCol(m[1],_normCol(d));
+      _draftRepaint();
+      return;
+    }
+    if(path&&path!=='/'){ // 構造キーなど
+      if(!bunDraftRemote){dbPullDraft(_refreshDraftAfterPull);return;}
+      var k=path.replace(/^\//,'');
+      if(k&&k.indexOf('/')<0){bunDraftRemote[k]=d;_draftRepaint();return;}
+    }
+    dbPullDraft(_refreshDraftAfterPull);
+  }catch(ex){}
+}
+/* patch=指定パス配下の一部キーだけが変わった通知。
+   列単位PATCHでは data={"data/名前":[...],updatedAt,by} の形で届き、
+   全体スナップショット（d.dを持つ）ではないので put と同じ扱いにはできない。 */
+function _onDraftPatch(e){
+  try{
+    var p=JSON.parse(e.data),path=p&&p.path,d=p&&p.data;
+    if(!d||typeof d!=='object')return;
+    if(!bunDraftRemote){dbPullDraft(_refreshDraftAfterPull);return;} // 手元にリモート像が無ければ取り直す
+    var base=(path==='/'||!path)?'':path.replace(/^\//,'');
+    var unknown=false;
+    Object.keys(d).forEach(function(k){
+      var full=base?(base+'/'+k):k;
+      if(full==='updatedAt'||full==='by'){return;}
+      var m=full.match(/^data\/([^/]+)$/);
+      if(m){_applyDraftCol(m[1],_normCol(d[k]));return;}
+      if(full==='data'){_applyDraftData(d[k]||{});bunDraftRemote.data=bunDraftRemote.data||{};return;}
+      if(full.indexOf('/')<0){bunDraftRemote[full]=d[k];return;}
+      unknown=true; // data/名前/添字 などの深いパッチ
+    });
+    if(unknown){dbPullDraft(_refreshDraftAfterPull);return;}
+    if(bunDraftRemote.order&&!_draftMeta&&tab==='input'&&bunStep==='input')bunOrder=_normDraft(bunDraftRemote).order;
+    _draftRepaint();
+  }catch(ex){}
+}
 function dbListenDraft(){
   try{
     var src=new EventSource(DRAFT_DB+'.json');
-    function handle(e){
-      try{
-        var p=JSON.parse(e.data);var path=p&&p.path;var d=p&&p.data;
-        // 全体（path='/'）
-        if(path==='/'){
-          if(!d||!d.d){bunDraftRemote=null;return;}
-          if(d.by===CLIENT_ID)return;
-          bunDraftRemote=_normDraft(d);
-          if(tab==='input'&&bunStep==='input'){
-            if(d.data){bunData={};Object.keys(d.data).forEach(function(nm){bunData[nm]=d.data[nm];});}
-            if(d.order)bunOrder=d.order;
-            if(!_syncBunCellsToDom())paint();
-          }else if(tab==='input'&&bunStep==='mo-sess'){paint();}
-          return;
-        }
-        // data全体（path='/data'）
-        if(path==='/data'){
-          if(!bunDraftRemote)bunDraftRemote={};
-          var obj={};if(d)Object.keys(d).forEach(function(nm){obj[nm]=_normCol(d[nm]);});
-          bunDraftRemote.data=obj;
-          if(tab==='input'&&bunStep==='input'){bunData=obj;if(!_syncBunCellsToDom())paint();}
-          return;
-        }
-        // 単一列（path='/data/名前'）
-        var m=path&&path.match(/^\/data\/(.+)$/);
-        if(m){
-          var nm=m[1];var col=_normCol(d);
-          if(!bunDraftRemote)bunDraftRemote={};if(!bunDraftRemote.data)bunDraftRemote.data={};
-          bunDraftRemote.data[nm]=col;
-          if(tab==='input'&&bunStep==='input'){
-            bunData[nm]=col;
-            if(!_syncBunCellsToDom())paint();
-          }
-          return;
-        }
-        // その他のpathは取り直し
-        dbPullDraft(_refreshDraftAfterPull);
-      }catch(ex){}
-    }
-    src.addEventListener('put',handle);
-    src.addEventListener('patch',handle);
+    src.addEventListener('put',_onDraftPut);
+    src.addEventListener('patch',_onDraftPatch);
     src.onerror=function(){if(src.readyState===2)setTimeout(dbListenDraft,8000);};
   }catch(ex){}
 }
@@ -1622,7 +1705,12 @@ function bunSortByScores(base,scores){
 function getBunMembers(){
   var key=bunD+'|'+bunSess;
   var sorted=bunOrder?bunOrder:membersSorted();
-  if(A.hasOwnProperty(key))return sorted.filter(function(n){return A[key].indexOf(n)>=0;});
+  // 出席者に加えて「既に○×が入っている部員」も必ず含める。
+  // 出席リストが他端末の同期で入れ替わった時に、入力済みの列が
+  // ensureBunData()で削除されてしまうのを防ぐ。
+  if(A.hasOwnProperty(key))return sorted.filter(function(n){
+    return A[key].indexOf(n)>=0||(bunData[n]||[]).some(function(v){return v!=null;});
+  });
   return sorted;
 }
 function bunShotCount(){return 20;}
@@ -1666,7 +1754,9 @@ function ensureBunData(){
     }
   });
   Object.keys(bunData).forEach(function(name){
-    if(members.indexOf(name)<0)delete bunData[name];
+    if(members.indexOf(name)>=0)return;
+    if((bunData[name]||[]).some(function(v){return v!=null;}))return; // 入力済みの列は消さない
+    delete bunData[name];
   });
 }
 function toggleBunShot(name,idx){
