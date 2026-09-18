@@ -213,7 +213,7 @@ button.tap-bounce{animation:tapBounce .16s ease-out}
    ・マイナー : 機能の追加・仕様の変更（パッチは0に戻す）
    ・パッチ : バグ修正・見た目の微調整・名称変更など
    履歴: v1 build1(6/8 端末内版) / v2 build53(6/13 Firebase共有) / v3 build117(7/2 日付ベース記録) / v4 build170(7/15 4タブ構成) */
-var APP_VERSION='4.12.0',APP_BUILD=216;
+var APP_VERSION='4.13.0',APP_BUILD=217;
 (function(){var el=document.getElementById('app-ver');if(el)el.textContent='v'+APP_VERSION+' (build '+APP_BUILD+')';})();
 var SEED_E=[];
 var SEED_M=[];
@@ -512,6 +512,9 @@ function _refreshDraftAfterPull(){
     }else{paint();}
   }else if(tab==='input'&&bunStep==='mo-sess'){paint();}
 }
+/* 下書きが「実体として存在する」か。列だけのpatchで作られた空オブジェクトで
+   新規作成が塞がれてしまわないよう、日付を持つものだけを進行中とみなす。 */
+function hasBunDraft(){var d=bunDraftRemote;return !!(d&&(d.d||d.date));}
 function dbListenDraft(){
   try{
     var src=new EventSource(DRAFT_DB+'.json');
@@ -615,6 +618,7 @@ function pinHash(s){var h=5381;s=''+s;for(var i=0;i<s.length;i++){h=((h<<5)+h+s.
 var bunD='',bunSess=0,bunDate='',bunMode='',bunData={},bunOrder=null,_bunDrag=null;
 var bunStep='mo-sess',bunTate=1,bunPerTate=4,bunTateList=[4];
 var bunViewMode='table',bunRoundPos=0,bunSaveStage=0,_bunSaveArmedAt=0,bunReorderMode=false,settingsReorderMode=false;
+var bunDraftDiscard=0; // 進行中の分附を破棄するときの確認段階
 
 var SEED_NUMS={'赤嶺':1,'小西':2,'諏訪園':3,'永田':4,'苗代':5,'廣中':6,'藤田圭':7,'丸崎':8,'辻':9,'西野':10,'藤田真':11,'鈴木':12,'服部':13,'濱野':14,'藤田悠':15,'柳澤':16,'油谷':17,'久田':18,'平井':19,'藤井':20,'藤本':21,'松野':22,'松本':23,'荒川':24,'今村':25,'岡田':26,'川北':27,'佐野':28,'祐成':29,'長谷川':30,'東':31,'美藤':32,'山本':33,'米虫':34,'上村':35,'川畑':36,'近藤':37,'高島':38,'徳久':39,'豊岡':40,'舟橋':41,'若井':42};
 
@@ -992,7 +996,7 @@ function presentMembers(){
 function sw(t){
   if(!adminMode&&!shonaiMode&&t!=='input'&&t!=='table'&&t!=='penalty'&&t!=='self')return;
   if(t==='table'&&!adminMode)return; // 成績表タブは管理者のみ
-  tab=t;pDel=null;pReset=false;editId=null;pinPendingType=null;pinPendingVal='';wipeStep=0;rankExpandName='';bunSaveStage=0;if(t!=='table'){mergeMode=false;mergeSel=[];mergeConfirm=false;histOpen=false;}if(t!=='input'){bunStep='mo-sess';}if(t!=='table')tableView='rank';if(t!=='penalty'){penSubTab='penalty';jobView='list';}paint();
+  tab=t;pDel=null;pReset=false;editId=null;pinPendingType=null;pinPendingVal='';wipeStep=0;rankExpandName='';bunSaveStage=0;bunDraftDiscard=0;if(t!=='table'){mergeMode=false;mergeSel=[];mergeConfirm=false;histOpen=false;}if(t!=='input'){bunStep='mo-sess';}if(t!=='table')tableView='rank';if(t!=='penalty'){penSubTab='penalty';jobView='list';}paint();
 }
 
 /* ------ paintTabs: data-tab + addEventListener ------ */
@@ -1184,13 +1188,16 @@ var CLICK_ID={
   'btn-bun-save-cancel':function(){bunSaveStage=0;paint();},
   'bun-save-modal':function(el,ev){if(ev.target===el){bunSaveStage=0;paint();}},
   'btn-draft-resume':function(){
-    var dr=bunDraftRemote;if(!dr)return;
+    var dr=bunDraftRemote;if(!hasBunDraft())return;
     bunD=dr.d||'';bunSess=dr.sess||0;bunDate=dr.date||(dr.d?dr.d+'-01':'');bunMode=dr.mode||'';bunTate=dr.tate||1;
     bunTateList=(dr.tateList&&dr.tateList.length)?dr.tateList.slice():[4];
     bunOrder=dr.order?dr.order.slice():null;
     bunData={};if(dr.data)Object.keys(dr.data).forEach(function(nm){bunData[nm]=(dr.data[nm]||[]).slice();});
     bunStep='input';bunViewMode='table';bunRoundPos=0;_draftBannerDismissed=true;paint();
   },
+  'btn-draft-discard':function(){bunDraftDiscard=1;paint();},
+  'btn-draft-discard-no':function(){bunDraftDiscard=0;paint();},
+  'btn-draft-discard-yes':function(){bunDraftDiscard=0;resetBun();fl('進行中の分附を破棄しました');},
   'btn-att-all':function(){setAllAtt(true);},
   'btn-att-none':function(){setAllAtt(false);},
   'btn-indiv-wk-more':function(){indivWkLimit+=12;paint();},
@@ -1737,21 +1744,31 @@ function tBun(){
     if(!bunDate)bunDate=todayStr();
     var wk=calWeekOfMonth(bunDate);
     var ready=!!bunDate&&wk>0&&!!bunMode;
-    var draftBanner='';
-    var hasDraft=bunDraftRemote&&!_draftBannerDismissed;
-    if(hasDraft){
+    /* 進行中の下書きがある間は新規作成そのものを塞ぐ。
+       二重に作られると、先に入力していた分がどこにも残らず消えるため。
+       逃げ道として「破棄して新しく作成」だけは二段確認で残す。 */
+    if(hasBunDraft()){
       var dr=bunDraftRemote;
       var drTime=dr.updatedAt?new Date(dr.updatedAt).toLocaleTimeString('ja-JP',{hour:'2-digit',minute:'2-digit'}):'';
-      draftBanner='<div class="card mb10" style="background:#fef9e7;border:1.5px solid var(--warn,#e6a817)">'
+      return '<div class="card mb10" style="background:#fef9e7;border:1.5px solid var(--warn,#e6a817)">'
         +'<div style="font-size:14px;font-weight:800;color:var(--warn,#b7800a);margin-bottom:4px">📋 進行中の分附があります</div>'
         +'<div style="font-size:12px;color:var(--sub);margin-bottom:12px">'+(dr.d?fm(dr.d):(dr.date?fm(dr.date.slice(0,7)):''))+(dr.date?' 第'+calWeekOfMonth(dr.date)+'週':dr.sess?' 第'+dr.sess+'週':'')+(dr.mode==='hyakusha'?' — 100射会':'')+(drTime?' — 更新 '+drTime:'')+'</div>'
         +'<button id="btn-draft-resume" class="btn prim" style="width:100%;margin-top:0;padding:16px;font-size:17px;font-weight:800">▶ 続きから入力する</button>'
-        +'<div style="font-size:11px;color:var(--sub);text-align:center;margin-top:8px">※ 新しく作らず、こちらから続けてください</div>'
+        +'<div style="font-size:11px;color:var(--sub);text-align:center;margin-top:8px">※ 記録が済むまで新しい分附は作成できません</div>'
+      +'</div>'
+      +'<div class="card mb10">'
+      +(bunDraftDiscard
+        ?'<div style="font-size:12px;font-weight:700;color:var(--bad,#c0392b);margin-bottom:8px">進行中の分附の入力内容をすべて破棄します。元に戻せません。よろしいですか？</div>'
+          +'<div class="row" style="gap:8px">'
+          +'<button id="btn-draft-discard-yes" class="btn" style="flex:1;margin-top:0;background:var(--bad,#c0392b);color:#fff">破棄する</button>'
+          +'<button id="btn-draft-discard-no" class="btn bh" style="flex:1;margin-top:0">やめる</button>'
+          +'</div>'
+        :'<div style="font-size:12px;color:var(--sub);margin-bottom:8px">別の日の分附を新しく作るには、進行中の分附を先に記録するか破棄してください。</div>'
+          +'<button id="btn-draft-discard" class="btn bh" style="width:100%;margin-top:0;padding:10px;font-size:13px">🗑 破棄して新しく作成する</button>')
       +'</div>';
     }
-    return draftBanner
-      +'<div class="card mb10">'
-      +'<p style="margin:0 0 10px;font-size:14px;font-weight:700">'+(hasDraft?'または新しく分附を作成':'① 日付を選択')+'</p>'
+    return '<div class="card mb10">'
+      +'<p style="margin:0 0 10px;font-size:14px;font-weight:700">① 日付を選択</p>'
       +'<label style="margin-top:0">練習日</label>'
       +'<input id="bun-date" type="date" value="'+bunDate+'">'
       +'<label>種別</label>'
@@ -1767,7 +1784,7 @@ function tBun(){
           :'種別を選択してください')
       +'</div>'
       +(ready?'':'<div style="margin-top:8px;font-size:12px;color:var(--sub)">日付を選択してください</div>')
-      +'<button id="btn-bun-next-att" class="btn '+(hasDraft?'bh':'prim')+'" style="width:100%;margin-top:12px;padding:12px'+(ready?'':';opacity:0.45')+'"'+(ready?'':' disabled')+'>次へ：出席者を選択 →</button>'
+      +'<button id="btn-bun-next-att" class="btn prim" style="width:100%;margin-top:12px;padding:12px'+(ready?'':';opacity:0.45')+'"'+(ready?'':' disabled')+'>次へ：出席者を選択 →</button>'
       +'</div>';
   }
   // STEP 2
