@@ -225,7 +225,7 @@ button.tap-bounce{animation:tapBounce .16s ease-out}
    ・マイナー : 機能の追加・仕様の変更（パッチは0に戻す）
    ・パッチ : バグ修正・見た目の微調整・名称変更など
    履歴: v1 build1(6/8 端末内版) / v2 build53(6/13 Firebase共有) / v3 build117(7/2 日付ベース記録) / v4 build170(7/15 4タブ構成) */
-var APP_VERSION='4.19.0',APP_BUILD=227;
+var APP_VERSION='4.19.1',APP_BUILD=228;
 (function(){var el=document.getElementById('app-ver');if(el)el.textContent='v'+APP_VERSION+' (build '+APP_BUILD+')';})();
 var SEED_E=[];
 var SEED_M=[];
@@ -1992,7 +1992,35 @@ function toggleBunShot(name,idx){
     tc.textContent=hi;
     tc.style.color=hi>=14?'var(--good)':hi>=10?'var(--info)':hi>=7?'var(--warn)':'var(--ink)';
   }
+  if(isLeagueMode(bunMode))lgRefreshSubs();
   scheduleDbPushDraft(name);
+}
+/* 小計・合計列を画面から作り直さずに更新する（○×を押した直後の反映用） */
+function lgRefreshSubs(){
+  var slots=lgTableSlots(bunMode);
+  var byTate={},all=[];
+  slots.forEach(function(sl){
+    if(!byTate[sl.tate])byTate[sl.tate]=[];
+    byTate[sl.tate].push(sl.key);all.push(sl.key);
+  });
+  function hits(keys,from,to){
+    var h=0;
+    keys.forEach(function(k){
+      var col=bunData[k]||[];
+      for(var i=from;i<to;i++)if(col[i]===true)h++;
+    });
+    return h;
+  }
+  var cells=document.querySelectorAll('[data-bun-sub]');
+  for(var i=0;i<cells.length;i++){
+    var el=cells[i],gk=el.getAttribute('data-bun-sub'),bk=el.getAttribute('data-bun-blk');
+    var keys=(gk==='*')?all:(byTate[gk]||[]);
+    var c=el.querySelector('.bs-c'),b=el.querySelector('.bs-b');
+    if(bk==='head'){if(c)c.textContent=hits(keys,0,bunShotCount());continue;}
+    var bi=parseInt(bk,10);if(isNaN(bi))continue;
+    if(c)c.textContent=hits(keys,0,(bi+1)*LG_PER);
+    if(b)b.textContent='/'+hits(keys,bi*LG_PER,(bi+1)*LG_PER);
+  }
 }
 function reorderBunColumn(src,tgt){
   if(!bunOrder)bunOrder=getBunMembers().slice();
@@ -2362,10 +2390,10 @@ function tBun(){
       });
       return h;
     }
-    function _subCell(keys,b){ // b=立目index（0=1立目）
+    function _subCell(gk,keys,b){ // b=立目index（0=1立目）
       var cum=_lgHits(keys,0,(b+1)*LG_PER);
       var hi=_lgHits(keys,b*LG_PER,(b+1)*LG_PER);
-      return '<td class="bun-sub" rowspan="'+LG_PER+'">'
+      return '<td class="bun-sub" rowspan="'+LG_PER+'" data-bun-sub="'+gk+'" data-bun-blk="'+b+'">'
         +'<div class="bs-c">'+cum+'</div><div class="bs-b">/'+hi+'</div></td>';
     }
     /* 行の種類ごとに、列ciの手前へ入れるセルを返す。
@@ -2373,17 +2401,17 @@ function tBun(){
     function _pfx(ci,kind,b){
       if(!_lg)return _tcol[ci]?_vsep:'';
       var out='';
-      function one(keys){
-        if(kind==='blk')return _subCell(keys,b);
+      function one(gk,keys){
+        if(kind==='blk')return _subCell(gk,keys,b);
         if(kind==='row')return '';
         if(kind==='head'){
           var t=_lgHits(keys,0,shots);
-          return '<td class="bun-sub"><div class="bs-c">'+t+'</div></td>';
+          return '<td class="bun-sub" data-bun-sub="'+gk+'" data-bun-blk="head"><div class="bs-c">'+t+'</div></td>';
         }
         return '<td class="bun-sub"></td>';
       }
-      if(ci===0&&_grand)out+=one([].concat.apply([],_grp.map(function(g){return g.keys;})));
-      if(_grpAt[ci])out+=one(_grpAt[ci].keys);
+      if(ci===0&&_grand)out+=one('*',[].concat.apply([],_grp.map(function(g){return g.keys;})));
+      if(_grpAt[ci])out+=one(_grpAt[ci].tate,_grpAt[ci].keys);
       return out;
     }
     var headerRow='<tr class="bun-total-row">'
