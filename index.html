@@ -155,6 +155,9 @@ tbody tr:nth-child(even){background:var(--sec)}
 .bun-sep-row td{height:5px;background:var(--sec);border-top:2px dashed var(--ln2);border-bottom:2px dashed var(--ln2);padding:0}
 .bun-name-row td,.bun-name-row th{position:sticky;bottom:0;z-index:3;border-top:2px solid var(--ink);background:var(--sec)}
 .bun-name-cell{text-align:center;vertical-align:top;width:50px;min-width:50px;word-break:keep-all;position:relative;padding-bottom:24px}
+.bun-sub{width:34px!important;min-width:34px!important;padding:2px 1px!important;background:var(--sec);border-left:2px dashed var(--ln2)!important;border-right:2px dashed var(--ln2)!important;vertical-align:middle;text-align:center}
+.bun-sub .bs-c{font-size:12px;font-weight:800;line-height:1.15}
+.bun-sub .bs-b{font-size:10px;color:var(--sub);line-height:1.15}
 .bun-vsep{width:6px!important;min-width:6px!important;max-width:6px!important;padding:0!important;background:var(--sec);border-left:2px dashed var(--ln2)!important;border-right:2px dashed var(--ln2)!important}
 .modal-ov{position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;z-index:1300;padding:24px}
 .modal-bx{background:var(--sf);border-radius:16px;padding:20px 22px;max-width:340px;width:100%;box-shadow:0 12px 40px rgba(0,0,0,.28);text-align:center}
@@ -222,7 +225,7 @@ button.tap-bounce{animation:tapBounce .16s ease-out}
    ・マイナー : 機能の追加・仕様の変更（パッチは0に戻す）
    ・パッチ : バグ修正・見た目の微調整・名称変更など
    履歴: v1 build1(6/8 端末内版) / v2 build53(6/13 Firebase共有) / v3 build117(7/2 日付ベース記録) / v4 build170(7/15 4タブ構成) */
-var APP_VERSION='4.18.0',APP_BUILD=226;
+var APP_VERSION='4.19.0',APP_BUILD=227;
 (function(){var el=document.getElementById('app-ver');if(el)el.textContent='v'+APP_VERSION+' (build '+APP_BUILD+')';})();
 var SEED_E=[];
 var SEED_M=[];
@@ -833,7 +836,7 @@ var bunLineup={},bunOpp='',bunOppHits='',bunKyo={on:false,te:{},hon:{}},lgSubOpe
 /* 試合の詳細。先攻後攻・会場・試合区分 */
 var bunFirst='',bunVenue='',bunKind='';
 var LG_FIRST=[['sen','先攻'],['go','後攻']];
-var LG_VENUE=[['home','ホーム'],['away','アウェイ'],['neutral','中立']];
+var LG_VENUE=[['home','ホーム'],['away','アウェイ']];
 var LG_KIND=[['official','本番'],['practice','練習試合']];
 function lgOptLabel(list,v){for(var i=0;i<list.length;i++){if(list[i][0]===v)return list[i][1];}return '';}
 var bunViewMode='table',bunRoundPos=0,bunSaveStage=0,_bunSaveArmedAt=0,bunReorderMode=false,settingsReorderMode=false;
@@ -1544,7 +1547,12 @@ var INPUT_ID={
   'pen-cpts':function(el){penForm.pts=+el.value;},
   'pen-note':function(el){penForm.note=el.value;},
   'ef-date':function(el){var w=document.getElementById('ef-wk');if(w)w.textContent=el.value?fm(el.value.slice(0,7))+' 第'+calWeekOfMonth(el.value)+'週として記録':'';},
-  'lg-opp':function(el){var was=!!bunOpp;bunOpp=el.value;if(was!==!!bunOpp)paint();},
+  'lg-opp':function(el){
+    bunOpp=el.value;
+    // paint()すると入力欄が作り直されてキーボードが閉じるので、ボタンの状態だけ切り替える
+    var b=document.getElementById('btn-lg-next-lineup');
+    if(b){b.disabled=!bunOpp;b.style.opacity=bunOpp?'':'0.45';}
+  },
   'lg-opphits':function(el){
     bunOppHits=el.value;
     // ここでpaint()すると入力欄が作り直されてキーボードが閉じるので、表示だけ差し替える
@@ -2332,11 +2340,57 @@ function tBun(){
     (function(){var cum=0;for(var i=0;i<bunTate-1;i++){cum+=bunTateList[i]||4;var li=members.length-cum;if(li>0)_tcol[li]=1;}})();
     var _nSep=Object.keys(_tcol).length;
     var _vsep='<td class="bun-vsep"></td>';
+    var _lg=isLeagueMode(bunMode);
+    /* リーグ戦は紙の分附表に合わせて小計・合計の列を入れる。
+       各立の左に「その立の累計／その立目の的中」、さらに左端に全体の同じ列。
+       累計は下（1立目）から上へ積み上げる。 */
+    var _grp=[],_grpAt={};
+    if(_lg){
+      var _slotsT=lgTableSlots(bunMode),_cur=null;
+      _slotsT.forEach(function(sl,ci){
+        if(!_cur||_cur.tate!==sl.tate){_cur={tate:sl.tate,label:sl.tateLbl||'計',start:ci,keys:[]};_grp.push(_cur);_grpAt[ci]=_cur;}
+        _cur.keys.push(sl.key);
+      });
+    }
+    var _grand=_lg&&_grp.length>1;
+    var _extra=_lg?(_grp.length+(_grand?1:0)):_nSep;
+    function _lgHits(keys,from,to){ // [from,to) の射で的中数
+      var h=0;
+      keys.forEach(function(k){
+        var col=bunData[k]||[];
+        for(var i=from;i<to;i++)if(col[i]===true)h++;
+      });
+      return h;
+    }
+    function _subCell(keys,b){ // b=立目index（0=1立目）
+      var cum=_lgHits(keys,0,(b+1)*LG_PER);
+      var hi=_lgHits(keys,b*LG_PER,(b+1)*LG_PER);
+      return '<td class="bun-sub" rowspan="'+LG_PER+'">'
+        +'<div class="bs-c">'+cum+'</div><div class="bs-b">/'+hi+'</div></td>';
+    }
+    /* 行の種類ごとに、列ciの手前へ入れるセルを返す。
+       body の非先頭行は rowspan に覆われるので何も出さない。 */
+    function _pfx(ci,kind,b){
+      if(!_lg)return _tcol[ci]?_vsep:'';
+      var out='';
+      function one(keys){
+        if(kind==='blk')return _subCell(keys,b);
+        if(kind==='row')return '';
+        if(kind==='head'){
+          var t=_lgHits(keys,0,shots);
+          return '<td class="bun-sub"><div class="bs-c">'+t+'</div></td>';
+        }
+        return '<td class="bun-sub"></td>';
+      }
+      if(ci===0&&_grand)out+=one([].concat.apply([],_grp.map(function(g){return g.keys;})));
+      if(_grpAt[ci])out+=one(_grpAt[ci].keys);
+      return out;
+    }
     var headerRow='<tr class="bun-total-row">'
       +members.map(function(n,ci){
         var hi=(bunData[n]||[]).filter(function(s){return s===true;}).length;
         var col=hi>=(shots*0.7)?'var(--good)':hi>=(shots*0.5)?'var(--info)':hi>=(shots*0.35)?'var(--warn)':'var(--ink)';
-        return (_tcol[ci]?_vsep:'')+'<td data-bun-total="'+esc(n)+'" style="color:'+col+';font-weight:700">'+hi+'</td>';
+        return _pfx(ci,'head')+'<td data-bun-total="'+esc(n)+'" style="color:'+col+';font-weight:700">'+hi+'</td>';
       }).join('')
       +'<th class="bun-rn-r">計</th></tr>';
     var bodyRows='';
@@ -2344,20 +2398,21 @@ function tBun(){
     for(var shotNum=shots;shotNum>=1;shotNum--){
       var idx=shotNum-1;
       if(idx<shots-1&&_bounds.indexOf(idx)>=0){
-        bodyRows+='<tr class="bun-sep-row"><td colspan="'+(members.length+_nSep+1)+'"></td></tr>';
+        bodyRows+='<tr class="bun-sep-row"><td colspan="'+(members.length+_extra+1)+'"></td></tr>';
       }
+      var _isBlk=_lg&&(shotNum%LG_PER===0);
+      var _b=_isBlk?(shotNum/LG_PER-1):0;
       bodyRows+='<tr class="bun-row">'
         +members.map(function(n,ci){
           var s=(bunData[n]||[])[idx];
           var cls='bun-tc'+(s===true?' bun-tc-hit':s===false?' bun-tc-miss':' bun-tc-empty');
-          return (_tcol[ci]?_vsep:'')+'<td class="'+cls+'" data-bun-name="'+esc(n)+'" data-bun-idx="'+idx+'">'+(s===true?'○':s===false?'✗':'')+'</td>';
+          return _pfx(ci,_isBlk?'blk':'row',_b)+'<td class="'+cls+'" data-bun-name="'+esc(n)+'" data-bun-idx="'+idx+'">'+(s===true?'○':s===false?'✗':'')+'</td>';
         }).join('')
         +'<th class="bun-rn-r">'+shotNum+'</th></tr>';
     }
-    var _lg=isLeagueMode(bunMode);
     var nameRow='<tr class="bun-name-row">'
       +members.map(function(n,ci){
-        return (_tcol[ci]?_vsep:'')+'<td class="bun-name-cell"'+(_lg?'':' data-bun-member="'+esc(n)+'"')+'>'
+        return _pfx(ci,'name')+'<td class="bun-name-cell"'+(_lg?'':' data-bun-member="'+esc(n)+'"')+'>'
           +'<span class="bun-vname">'+esc(bunColName(n))+'</span>'
           +((!_lg&&bunReorderMode)?'<span class="bun-dh" style="touch-action:none;user-select:none;cursor:grab;position:absolute;left:0;right:0;bottom:2px;font-size:14px;color:var(--faint);text-align:center">⠿</span>':'')
           +'</td>';
@@ -2373,7 +2428,7 @@ function tBun(){
         +'</table></div>';
     if(members.length){
       var barCells=members.map(function(n,ci){
-        return (_tcol[ci]?_vsep:'')+'<td class="bun-name-cell"><span class="bun-vname">'+esc(bunColName(n))+'</span></td>';
+        return _pfx(ci,'name')+'<td class="bun-name-cell"><span class="bun-vname">'+esc(bunColName(n))+'</span></td>';
       }).join('')+'<th class="bun-rn-r"></th>';
       bunNameBar='<div id="bun-namebar" class="bun-namebar" style="display:none">'
         +'<div id="bun-namebar-scroll" class="bun-namebar-scroll">'
