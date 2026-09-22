@@ -163,8 +163,8 @@ tbody tr:nth-child(even){background:var(--sec)}
 .lg-ro .bun-table{width:100%}
 .lg-ro .bun-row{height:var(--lgh,17px)}
 .lg-ro .bun-tc{width:auto;min-width:0;height:var(--lgh,17px);max-height:none;line-height:var(--lgh,17px);font-size:calc(var(--lgh,17px)*0.55);cursor:default;position:relative;overflow:visible}
-.lg-ro .bun-tc.lg-has-in{vertical-align:top;line-height:calc(var(--lgh,17px) - 7px)}
-.lg-ro .lg-in{position:absolute;left:0;right:0;bottom:1px;font-size:7px;line-height:1;font-weight:800;color:var(--acc);white-space:nowrap;text-align:center;letter-spacing:-.02em;pointer-events:none}
+.lg-ro .bun-tc.lg-has-in{vertical-align:top;line-height:calc(var(--lgh,17px) - 10px)}
+.lg-ro .lg-in{position:absolute;left:0;right:0;bottom:0;height:9px;line-height:9px;font-size:7px;font-weight:700;background:var(--sec);color:var(--ink);border-top:1px solid var(--ln2);white-space:nowrap;text-align:center;letter-spacing:-.02em;overflow:hidden;pointer-events:none}
 .lg-ro .bun-sep-row td,.lg-ro .lg-sep{height:3px;padding:0;background:var(--sec);border-top:1.5px dashed var(--ln2);border-bottom:1.5px dashed var(--ln2)}
 .lg-ro .lg-chg{background:var(--acc)!important;color:#fff;font-size:9.5px;font-weight:800;line-height:1.1;padding:2px 0!important;text-align:center;border-top:2px solid var(--acc)!important;border-bottom:2px solid var(--acc)!important}
 .lg-ro .bun-total-row td{width:auto;min-width:0;padding:4px 0;font-size:12px}
@@ -243,7 +243,7 @@ button.tap-bounce{animation:tapBounce .16s ease-out}
    ・マイナー : 機能の追加・仕様の変更（パッチは0に戻す）
    ・パッチ : バグ修正・見た目の微調整・名称変更など
    履歴: v1 build1(6/8 端末内版) / v2 build53(6/13 Firebase共有) / v3 build117(7/2 日付ベース記録) / v4 build170(7/15 4タブ構成) */
-var APP_VERSION='4.20.4',APP_BUILD=233;
+var APP_VERSION='4.21.0',APP_BUILD=234;
 (function(){var el=document.getElementById('app-ver');if(el)el.textContent='v'+APP_VERSION+' (build '+APP_BUILD+')';})();
 var SEED_E=[];
 var SEED_M=[];
@@ -474,7 +474,7 @@ function dbListen(){
 /* ============ 分附の下書き同期 ============ */
 function _buildDraftPayload(){
   return {d:bunD,sess:bunSess,date:bunDate,mode:bunMode,tate:bunTate,tateList:bunTateList,order:bunOrder,data:bunData,
-          lineup:bunLineup,opp:bunOpp,oppHits:bunOppHits,first:bunFirst,venue:bunVenue,kind:bunKind,
+          lineup:bunLineup,opp:bunOpp,oppHits:bunOppHits,first:bunFirst,venue:bunVenue,kind:bunKind,editId:lgEditId||null,
           kyosha:{te:bunKyo.te,hon:bunKyo.hon},updatedAt:Date.now(),by:CLIENT_ID};
 }
 /* 列の中身を比較用の文字列にする（Firebaseは末尾のnullを落とすので長さを揃える） */
@@ -521,7 +521,7 @@ function _flushDraft(){
     body.d=bunD;body.sess=bunSess;body.date=bunDate;body.mode=bunMode;
     body.tate=bunTate;body.tateList=bunTateList;body.order=bunOrder||null;
     body.lineup=_isEmptyVal(bunLineup)?null:bunLineup;body.opp=bunOpp||null;body.oppHits=bunOppHits||null;
-    body.first=bunFirst||null;body.venue=bunVenue||null;body.kind=bunKind||null;
+    body.first=bunFirst||null;body.venue=bunVenue||null;body.kind=bunKind||null;body.editId=lgEditId||null;
   }
   names.forEach(function(nm){body['data/'+nm]=bunData[nm]||null;_draftSent[nm]=_colSig(bunData[nm]);}); // 変更列のみ深いPATCH
   fetch(DRAFT_DB+'.json',{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
@@ -758,6 +758,13 @@ function isMatchMode(m){var d=bunModeDef(m);return !!d&&d.kind==='match';}
 function isLeagueMode(m){return m==='league_m'||m==='league_f';}
 
 /* 試合画面の見出し1行。日付 — 種別／相手校（練習試合・会場・先攻後攻を注記） */
+function lgEditBanner(){
+  if(!lgEditId)return '';
+  return '<div style="display:flex;align-items:center;gap:8px;background:var(--acc-bg);border:1px solid var(--acc);border-radius:8px;padding:7px 10px;margin-bottom:10px;font-size:12px">'
+    +'<span style="flex:1;font-weight:700;color:var(--acc)">記録済みの試合を編集中</span>'
+    +'<button id="btn-lg-edit-cancel" class="xb" style="font-size:11.5px;color:var(--sub);border:1px solid var(--ln2);border-radius:6px;padding:4px 8px">編集をやめる</button>'
+  +'</div>';
+}
 function lgHeadLine(){
   var t=selfDateF(bunDate)+' — '+esc(bunModeLabel(bunMode));
   if(bunOpp)t+='／'+esc(bunOpp);
@@ -853,6 +860,7 @@ var bunStep='mo-sess',bunTate=1,bunPerTate=4,bunTateList=[4];
 var bunLineup={},bunOpp='',bunOppHits='',bunKyo={on:false,te:{},hon:{}},lgSubOpen='';
 /* 試合の詳細。先攻後攻・会場・試合区分 */
 var bunFirst='',bunVenue='',bunKind='';
+var lgEditId=0;   // 記録済みの試合を編集中ならそのid
 var LG_FIRST=[['sen','先攻'],['go','後攻']];
 var LG_VENUE=[['home','ホーム'],['away','アウェイ']];
 var LG_KIND=[['official','本番'],['practice','練習試合']];
@@ -1323,8 +1331,8 @@ function paint(){
   var _bunInput=(tab==='input'&&bunStep==='input');
   document.body.classList.toggle('bun-land',_bunInput);
   if(_bunInput){var _sw=document.querySelector('.bun-sheet-wrap');if(_sw)_sw.scrollLeft=_sw.scrollWidth;initBunTapFix();setupBunNameBar();}
-  if(tab==='table'&&tbScope==='match')lgFitSheets();
   else{window.onscroll=null;window.onresize=null;}
+  if(tab==='table'&&tbScope==='match')lgFitSheets();
 }
 /* ---- iOS Safari のダブルタップズーム対策 ----
    ✗ を入れるには同じセルを素早く2回叩く必要があるが、Safari は touch-action:manipulation
@@ -1428,7 +1436,8 @@ var CLICK_ID={
   'btn-bun-next-input':function(){var total=bunTateList.slice(0,bunTate).reduce(function(a,n){return a+n;},0);if(total!==getBunMembers().length)return;bunStep='input';paint();dbPushDraft();},
   'btn-bun-back-cfg':function(){bunStep=isLeagueMode(bunMode)?'lineup':'config';paint();},
   /* ---- リーグ戦の導線 ---- */
-  'btn-lg-back-mo':function(){bunStep='mo-sess';paint();},
+  'btn-lg-back-mo':function(){if(lgEditId)return fl('編集中は種別・日付の画面に戻れません。日付は下で変更できます',true);bunStep='mo-sess';paint();},
+  'btn-lg-edit-cancel':function(){var t=tab;dbDeleteDraft();resetBunState();sw('table');tbScope='match';paint();},
   'btn-lg-back-detail':function(){bunStep='detail';paint();},
   'btn-lg-next-lineup':function(){if(!bunOpp)return;bunStep='lineup';paint();},
   'btn-lg-next-input':function(){if(!lgLineupReady())return;bunStep='input';bunViewMode='table';paint();dbPushDraft();},
@@ -1459,7 +1468,7 @@ var CLICK_ID={
     bunData={};if(dr.data)Object.keys(dr.data).forEach(function(nm){bunData[nm]=(dr.data[nm]||[]).slice();});
     bunLineup={};if(dr.lineup)Object.keys(dr.lineup).forEach(function(k){bunLineup[k]=(dr.lineup[k]||[]).slice();});
     bunOpp=dr.opp||'';bunOppHits=(dr.oppHits==null?'':''+dr.oppHits);
-    bunFirst=dr.first||'';bunVenue=dr.venue||'';bunKind=dr.kind||'';
+    bunFirst=dr.first||'';bunVenue=dr.venue||'';bunKind=dr.kind||'';lgEditId=dr.editId||0;
     bunKyo={on:false,te:(dr.kyosha&&dr.kyosha.te)||{},hon:(dr.kyosha&&dr.kyosha.hon)||{}};
     bunStep='input';bunViewMode='table';bunRoundPos=0;_draftBannerDismissed=true;paint();
   },
@@ -1572,6 +1581,7 @@ var INPUT_ID={
     var b=document.getElementById('btn-lg-next-lineup');
     if(b){b.disabled=!bunOpp;b.style.opacity=bunOpp?'':'0.45';}
   },
+  'lg-date':function(el){if(!el.value)return;bunDate=el.value;bunD=bunDate.slice(0,7);bunSess=calWeekOfMonth(bunDate)||bunSess;},
   'lg-opphits':function(el){
     bunOppHits=el.value;
     // ここでpaint()すると入力欄が作り直されてキーボードが閉じるので、表示だけ差し替える
@@ -1602,6 +1612,7 @@ var CLICK_ATTR=[
   ['data-att-toggle',function(){attOpen=!attOpen;paint();}],
   ['data-lg-open',function(el){var id=+el.getAttribute('data-lg-open');lgOpen=(lgOpen===id)?0:id;lgDel=0;paint();}],
   ['data-lg-filter',function(el){lgFilter=el.getAttribute('data-lg-filter');lgOpen=0;lgDel=0;paint();}],
+  ['data-lg-edit',function(el){if(!canEditHistory())return;lgStartEdit(+el.getAttribute('data-lg-edit'));}],
   ['data-lg-del',function(el){if(!canEditHistory())return;lgDel=+el.getAttribute('data-lg-del');paint();}],
   ['data-lg-del-no',function(){lgDel=0;paint();}],
   ['data-lg-del-yes',function(el){
@@ -2210,7 +2221,10 @@ function tBun(){
         +'<button id="btn-lg-back-mo" class="btn bh" style="padding:6px 10px;font-size:12px">← 戻る</button>'
         +'<p style="margin:0 0 0 10px;font-size:14px;font-weight:700">② 試合の詳細</p>'
       +'</div>'
-      +'<p style="font-size:11px;color:var(--sub);margin:0 0 10px">'+selfDateF(bunDate)+' — '+esc(bunModeLabel(bunMode))+'</p>'
+      +lgEditBanner()
+      +(lgEditId
+        ?'<label style="margin-top:0">日付</label><input id="lg-date" type="date" value="'+esc(bunDate)+'"><div style="height:10px"></div>'
+        :'<p style="font-size:11px;color:var(--sub);margin:0 0 10px">'+selfDateF(bunDate)+' — '+esc(bunModeLabel(bunMode))+'</p>')
       +'<label style="margin-top:0">相手校</label>'
       +'<input id="lg-opp" type="text" value="'+esc(bunOpp)+'" placeholder="例：○○大学">'
       +'<div style="height:12px"></div>'
@@ -2290,6 +2304,7 @@ function tBun(){
         +'<button id="btn-lg-back-detail" class="btn bh" style="padding:6px 10px;font-size:12px">← 戻る</button>'
         +'<p style="margin:0 0 0 10px;font-size:14px;font-weight:700">③ 立順登録</p>'
       +'</div>'
+      +lgEditBanner()
       +'<p style="font-size:11px;color:var(--sub);margin:0 0 8px">'+lgHeadLine()+'</p>'
       +rows
       +(dupNames.length?'<div style="font-size:11.5px;color:var(--bad,#c0392b);margin-top:8px">同じ立目に重複：'+esc(dupNames.join('、'))+'</div>':'')
@@ -2335,6 +2350,7 @@ function tBun(){
         +'<button id="btn-lg-back-input" class="btn bh" style="padding:6px 10px;font-size:12px">← 戻る</button>'
         +'<p style="margin:0 0 0 10px;font-size:14px;font-weight:700">⑤ 試合結果</p>'
       +'</div>'
+      +lgEditBanner()
       +'<p style="font-size:11px;color:var(--sub);margin:0 0 10px">'+lgHeadLine()+'</p>'
       +'<label style="margin-top:0">相手の合計的中</label>'
       +'<input id="lg-opphits" type="number" inputmode="numeric" min="0" value="'+esc(bunOppHits)+'" placeholder="本数">'
@@ -2359,7 +2375,7 @@ function tBun(){
           :'')
       +'</div>'
       +(fillR.full?'':'<div style="font-size:11.5px;color:var(--warn,#b7800a);margin-bottom:8px">的中入力に未入力が'+fillR.left+'マス残っています</div>')
-      +'<button id="btn-lg-save" class="btn '+(bunOpp?'prim':'bh')+'" style="width:100%;margin-top:0;padding:12px">試合を記録する</button>'
+      +'<button id="btn-lg-save" class="btn '+(bunOpp?'prim':'bh')+'" style="width:100%;margin-top:0;padding:12px">'+(lgEditId?'変更を保存する':'試合を記録する')+'</button>'
       +(bunOpp?'':'<div style="font-size:11px;color:var(--sub);text-align:center;margin-top:6px">相手校を入力してください</div>')
       +'</div>'
       +(bunSaveStage?lgSaveModal(tot,hasOpp?oppN:null):'');
@@ -2572,7 +2588,7 @@ function tBun(){
       +'<p style="margin:0 0 0 10px;font-size:14px;font-weight:700">'+'④ 的中入力'+'</p>'
     +'</div>'
     +'<p style="font-size:11px;color:var(--sub);margin:0 0 6px">'+(isLeagueMode(bunMode)?lgHeadLine():(bunDate?selfDateF(bunDate):fm(bunD)+(bunSess?' 第'+bunSess+'週':''))+' — '+members.length+'名')+'</p>'
-    +(isLeagueMode(bunMode)?'':modeBar)
+    +(isLeagueMode(bunMode)?lgEditBanner():modeBar)
     +inputArea
     +'<div style="height:1px;background:var(--ln);margin:22px 0 14px"></div>'
     +'<div class="row" style="gap:8px;margin-top:0">'
@@ -2680,7 +2696,7 @@ function lgSaveModal(tot,oppN){
   if(bunSaveStage===2){
     return '<div class="modal-ov" id="bun-save-modal"><div class="modal-bx">'
       +'<div style="font-size:17px;font-weight:800;margin-bottom:10px">記録を確定します</div>'
-      +'<div style="font-size:13px;color:var(--sub);margin-bottom:16px">この内容で'+esc(bunOpp)+'戦を保存します。</div>'
+      +'<div style="font-size:13px;color:var(--sub);margin-bottom:16px">この内容で'+esc(bunOpp)+'戦を'+(lgEditId?'上書き保存':'保存')+'します。</div>'
       +'<div class="row" style="gap:8px">'
         +'<button id="btn-bun-save-yes2" class="btn prim" style="flex:1;margin-top:0;padding:11px">はい</button>'
         +'<button id="btn-bun-save-back" class="btn bh" style="flex:1;padding:11px">戻る</button>'
@@ -2703,6 +2719,25 @@ function lgSaveModal(tot,oppN){
     +'</div>'
   +'</div></div>';
 }
+function lgStartEdit(id){
+  var r=null;for(var i=0;i<GM.length;i++){if(GM[i].id===id){r=GM[i];break;}}
+  if(!r)return;
+  if(hasBunDraft()||(bunStep!=='mo-sess'&&!lgEditId))return fl('進行中の分附があります。先に記録するか破棄してください',true);
+  resetBunState();
+  lgEditId=r.id;
+  bunMode=r.mode;bunDate=r.date||'';bunD=r.d||(bunDate?bunDate.slice(0,7):'');
+  bunSess=bunDate?(calWeekOfMonth(bunDate)||0):0;
+  bunOpp=r.opp||'';bunOppHits=(r.oppHits==null?'':''+r.oppHits);
+  bunFirst=r.first||'';bunVenue=r.venue||'';bunKind=r.kind||'';
+  bunLineup={};Object.keys(r.lineup||{}).forEach(function(k){bunLineup[k]=(r.lineup[k]||[]).slice();});
+  bunData={};Object.keys(r.data||{}).forEach(function(k){bunData[k]=(r.data[k]||[]).slice();});
+  bunKyo={on:!!r.kyosha,te:JSON.parse(JSON.stringify((r.kyosha&&r.kyosha.te)||{})),hon:JSON.parse(JSON.stringify((r.kyosha&&r.kyosha.hon)||{}))};
+  bunTate=(LG_TATE[bunMode]||[]).length;
+  bunTateList=[];for(var t=0;t<bunTate;t++)bunTateList.push(LG_POS.length);
+  bunOrder=lgTableSlots(bunMode).map(function(sl){return sl.key;});
+  bunStep='detail';
+  sw('input');
+}
 function doSaveLeague(){
   var tot=lgTotals({data:bunData});
   if(!tot.sh)return fl('的中が入力されていません',true);
@@ -2724,11 +2759,17 @@ function doSaveLeague(){
            first:bunFirst||null,venue:bunVenue||null,kind:bunKind||null,
            hi:tot.hi,sh:tot.sh,ts:Date.now(),by:CLIENT_ID};
   if(kyo)rec.kyosha=kyo;
-  GM.push(rec);
+  var wasEdit=false;
+  if(lgEditId){
+    for(var gi=0;gi<GM.length;gi++){
+      if(GM[gi].id===lgEditId){rec.id=lgEditId;rec.editedAt=Date.now();GM[gi]=rec;wasEdit=true;break;}
+    }
+  }
+  if(!wasEdit)GM.push(rec);
   svGM();
   onPushSuccess(dbDeleteDraft);
   dbPushNow();
-  fl('試合を記録しました（'+selfDateF(bunDate)+' '+esc(bunOpp)+'）');
+  fl((wasEdit?'試合を更新しました（':'試合を記録しました（')+selfDateF(bunDate)+' '+esc(bunOpp)+'）');
   resetBunState();
   paint();
 }
@@ -2737,7 +2778,7 @@ function resetBunState(){
   bunData={};bunD='';bunSess=0;bunDate='';bunMode='';bunStep='mo-sess';bunOrder=null;
   bunTate=1;bunTateList=[4];bunViewMode='table';bunRoundPos=0;bunSaveStage=0;
   bunLineup={};bunOpp='';bunOppHits='';bunKyo={on:false,te:{},hon:{}};lgSubOpen='';
-  bunFirst='';bunVenue='';bunKind='';
+  bunFirst='';bunVenue='';bunKind='';lgEditId=0;
   _draftBannerDismissed=false;bunDraftRemote=null;
 }
 function doSaveBun(){
@@ -3268,11 +3309,14 @@ function lgMatchDetail(r){
     +perRows
     +kyoHtml
     +(canEditHistory()
-      ?'<div style="margin-top:12px;text-align:right">'
+      ?'<div style="margin-top:12px;display:flex;justify-content:space-between;align-items:center">'
+        +'<button class="btn bh" data-lg-edit="'+r.id+'" style="margin-top:0;padding:6px 14px;font-size:12px">編集する</button>'
+        +'<span>'
         +(lgDel===r.id
           ?'<button class="btn br" data-lg-del-yes="'+r.id+'" style="margin-top:0;padding:6px 12px;font-size:12px">本当に削除</button>'
            +'<button class="btn bh" data-lg-del-no="1" style="margin-left:6px;padding:6px 12px;font-size:12px">やめる</button>'
           :'<button class="xb" data-lg-del="'+r.id+'" style="font-size:11.5px;color:var(--bad,#c0392b)">この試合を削除</button>')
+        +'</span>'
       +'</div>'
       :'')
   +'</div>';
