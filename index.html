@@ -158,6 +158,15 @@ tbody tr:nth-child(even){background:var(--sec)}
 .bun-sub{width:34px!important;min-width:34px!important;padding:2px 1px!important;background:var(--sec);border-left:2px dashed var(--ln2)!important;border-right:2px dashed var(--ln2)!important;vertical-align:middle;text-align:center}
 .bun-sub .bs-c{font-size:12px;font-weight:800;line-height:1.15}
 .bun-sub .bs-b{font-size:10px;color:var(--sub);line-height:1.15}
+.lg-sheet-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch;margin:6px 0 4px;border:1px solid var(--ln);border-radius:10px}
+.lg-ro .bun-tc{width:34px;min-width:34px;height:26px;max-height:26px;line-height:26px;font-size:16px;cursor:default}
+.lg-ro .bun-total-row td{font-size:13px}
+.lg-ro .bun-name-cell{width:34px;min-width:34px;padding-bottom:6px}
+.lg-ro .bun-vname{font-size:11.5px;padding:4px 1px}
+.lg-ro .bun-sub{width:30px!important;min-width:30px!important}
+.lg-ro .bun-sub .bs-c{font-size:11px}
+.lg-ro .bun-sub .bs-b{font-size:9.5px}
+.lg-ro .bun-rn-r{font-size:10px}
 .bun-vsep{width:6px!important;min-width:6px!important;max-width:6px!important;padding:0!important;background:var(--sec);border-left:2px dashed var(--ln2)!important;border-right:2px dashed var(--ln2)!important}
 .modal-ov{position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;z-index:1300;padding:24px}
 .modal-bx{background:var(--sf);border-radius:16px;padding:20px 22px;max-width:340px;width:100%;box-shadow:0 12px 40px rgba(0,0,0,.28);text-align:center}
@@ -225,7 +234,7 @@ button.tap-bounce{animation:tapBounce .16s ease-out}
    ・マイナー : 機能の追加・仕様の変更（パッチは0に戻す）
    ・パッチ : バグ修正・見た目の微調整・名称変更など
    履歴: v1 build1(6/8 端末内版) / v2 build53(6/13 Firebase共有) / v3 build117(7/2 日付ベース記録) / v4 build170(7/15 4タブ構成) */
-var APP_VERSION='4.19.1',APP_BUILD=228;
+var APP_VERSION='4.20.0',APP_BUILD=229;
 (function(){var el=document.getElementById('app-ver');if(el)el.textContent='v'+APP_VERSION+' (build '+APP_BUILD+')';})();
 var SEED_E=[];
 var SEED_M=[];
@@ -1305,6 +1314,7 @@ function paint(){
   var _bunInput=(tab==='input'&&bunStep==='input');
   document.body.classList.toggle('bun-land',_bunInput);
   if(_bunInput){var _sw=document.querySelector('.bun-sheet-wrap');if(_sw)_sw.scrollLeft=_sw.scrollWidth;initBunTapFix();setupBunNameBar();}
+  if(tab==='table'&&tbScope==='match'){var _lw=document.querySelectorAll('.lg-sheet-wrap');for(var _li=0;_li<_lw.length;_li++)_lw[_li].scrollLeft=_lw[_li].scrollWidth;}
   else{window.onscroll=null;window.onresize=null;}
 }
 /* ---- iOS Safari のダブルタップズーム対策 ----
@@ -3129,29 +3139,67 @@ function lgBar(hi,sh){
     +'<span style="font-size:11.5px;width:74px;text-align:right;flex:none">'+hi+'/'+sh+'（'+v+'%）</span>'
   +'</div>';
 }
+/* 記録済みの試合を的中入力と同じ形の表で出す（閲覧専用。タップしても変わらない） */
+function lgSheetHTML(r){
+  var slots=lgTableSlots(r.mode)||[],shots=LG_BLOCKS*LG_PER;
+  var data=r.data||{};
+  var grp=[],grpAt={},cur=null;
+  slots.forEach(function(sl,ci){
+    if(!cur||cur.tate!==sl.tate){cur={tate:sl.tate,keys:[]};grp.push(cur);grpAt[ci]=cur;}
+    cur.keys.push(sl.key);
+  });
+  var grand=grp.length>1,extra=grp.length+(grand?1:0);
+  var all=slots.map(function(sl){return sl.key;});
+  function hits(keys,from,to){
+    var h=0;
+    keys.forEach(function(k){var col=data[k]||[];for(var i=from;i<to;i++)if(col[i]===true)h++;});
+    return h;
+  }
+  function pfx(ci,kind,b){
+    var out='';
+    function one(keys){
+      if(kind==='row')return '';
+      if(kind==='blk')return '<td class="bun-sub" rowspan="'+LG_PER+'"><div class="bs-c">'+hits(keys,0,(b+1)*LG_PER)+'</div><div class="bs-b">/'+hits(keys,b*LG_PER,(b+1)*LG_PER)+'</div></td>';
+      if(kind==='head')return '<td class="bun-sub"><div class="bs-c">'+hits(keys,0,shots)+'</div></td>';
+      return '<td class="bun-sub"></td>';
+    }
+    if(ci===0&&grand)out+=one(all);
+    if(grpAt[ci])out+=one(grpAt[ci].keys);
+    return out;
+  }
+  var head='<tr class="bun-total-row">'
+    +slots.map(function(sl,ci){
+      var hi=hits([sl.key],0,shots);
+      var col=hi>=(shots*0.7)?'var(--good)':hi>=(shots*0.5)?'var(--info)':hi>=(shots*0.35)?'var(--warn)':'var(--ink)';
+      return pfx(ci,'head')+'<td style="color:'+col+';font-weight:700">'+hi+'</td>';
+    }).join('')
+    +'<th class="bun-rn-r">計</th></tr>';
+  var bounds=[];for(var bb=1;bb<LG_BLOCKS;bb++)bounds.push(bb*LG_PER-1);
+  var body='';
+  for(var shotNum=shots;shotNum>=1;shotNum--){
+    var idx=shotNum-1;
+    if(idx<shots-1&&bounds.indexOf(idx)>=0)body+='<tr class="bun-sep-row"><td colspan="'+(slots.length+extra+1)+'"></td></tr>';
+    var isBlk=(shotNum%LG_PER===0),b=isBlk?(shotNum/LG_PER-1):0;
+    body+='<tr class="bun-row">'
+      +slots.map(function(sl,ci){
+        var v=(data[sl.key]||[])[idx];
+        var cls='bun-tc'+(v===true?' bun-tc-hit':v===false?' bun-tc-miss':' bun-tc-empty');
+        return pfx(ci,isBlk?'blk':'row',b)+'<td class="'+cls+'">'+(v===true?'○':v===false?'✗':'')+'</td>';
+      }).join('')
+      +'<th class="bun-rn-r">'+shotNum+'</th></tr>';
+  }
+  var names='<tr class="bun-name-row">'
+    +slots.map(function(sl,ci){
+      var nm=lgSlotMembers(r.lineup,sl.key);
+      return pfx(ci,'name')+'<td class="bun-name-cell"><span class="bun-vname">'+esc(nm.length?nm.join('・'):sl.label)+'</span></td>';
+    }).join('')
+    +'<th class="bun-rn-r"></th></tr>';
+  return '<div class="lg-sheet-wrap lg-ro"><table class="bun-table">'
+    +'<thead>'+head+'</thead><tbody>'+body+'</tbody><tfoot>'+names+'</tfoot>'
+    +'</table></div>';
+}
 function lgMatchDetail(r){
   var slots=lgSlots(r.mode)||[];
-  var head='<tr><th style="font-size:10.5px;color:var(--sub);text-align:left;padding:3px 4px">射位</th>';
-  for(var b=0;b<LG_BLOCKS;b++)head+='<th style="font-size:10.5px;color:var(--sub);padding:3px 4px">'+(b+1)+'</th>';
-  head+='<th style="font-size:10.5px;color:var(--sub);padding:3px 4px">計</th></tr>';
-  var body='';
-  slots.forEach(function(sl){
-    var col=(r.data&&r.data[sl.key])||[];
-    var asg=(r.lineup&&r.lineup[sl.key])||[];
-    var rowHi=0,rowSh=0,cells='';
-    for(var b2=0;b2<LG_BLOCKS;b2++){
-      var h=0,sh=0;
-      for(var i=b2*LG_PER;i<(b2+1)*LG_PER;i++){if(col[i]==null)continue;sh++;if(col[i]===true)h++;}
-      rowHi+=h;rowSh+=sh;
-      var kai=(sh===LG_PER&&h===LG_PER);
-      cells+='<td style="text-align:center;padding:3px 4px;font-size:12px;font-weight:'+(kai?'800':'600')+';color:'+(kai?'var(--good)':'inherit')+'">'+h+'</td>';
-    }
-    var nms=lgSlotMembers(r.lineup,sl.key);
-    body+='<tr style="border-top:1px solid var(--ln)">'
-      +'<td style="padding:4px;font-size:11.5px;white-space:nowrap">'+esc(sl.label)+'<br><span style="color:var(--sub);font-size:10.5px">'+esc(nms.join(' → '))+'</span></td>'
-      +cells
-      +'<td style="text-align:center;padding:3px 4px;font-size:12px;font-weight:800">'+rowHi+'</td></tr>';
-  });
   var ps=lgPersonStats(r);
   var perRows=Object.keys(ps).sort(function(a,b){return _pct(ps[b].hi,ps[b].sh)-_pct(ps[a].hi,ps[a].sh);})
     .map(function(n){
@@ -3173,8 +3221,7 @@ function lgMatchDetail(r){
     }
   }
   return '<div style="margin-top:10px;border-top:1px solid var(--ln);padding-top:10px">'
-    +'<div style="font-size:11.5px;font-weight:700;margin-bottom:6px">射位 × 立目（4射中の的中）</div>'
-    +'<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse">'+head+body+'</table></div>'
+    +lgSheetHTML(r)
     +'<div style="font-size:11.5px;font-weight:700;margin:14px 0 6px">選手別</div>'
     +perRows
     +kyoHtml
