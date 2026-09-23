@@ -243,7 +243,7 @@ button.tap-bounce{animation:tapBounce .16s ease-out}
    ・マイナー : 機能の追加・仕様の変更（パッチは0に戻す）
    ・パッチ : バグ修正・見た目の微調整・名称変更など
    履歴: v1 build1(6/8 端末内版) / v2 build53(6/13 Firebase共有) / v3 build117(7/2 日付ベース記録) / v4 build170(7/15 4タブ構成) */
-var APP_VERSION='4.21.0',APP_BUILD=234;
+var APP_VERSION='4.22.1',APP_BUILD=238;
 (function(){var el=document.getElementById('app-ver');if(el)el.textContent='v'+APP_VERSION+' (build '+APP_BUILD+')';})();
 var SEED_E=[];
 var SEED_M=[];
@@ -729,7 +729,7 @@ var fYear='all',fGender='all';
 var form={mb:'',d:CURM,sess:1,sh:'20',hi:''};
 var editId=null,editForm={};
 var pDel=null,pReset=false,attOpen=false,indivMb='',tableView='rank',indivView='official';
-var tbScope='prac',lgOpen=0,lgFilter='all',lgDel=0;  // 成績表の練習／試合切替と試合の展開状態
+var tbScope='prac',lgOpen=0,lgFilter='league_m',lgDel=0;  // 成績表の練習／試合切替と試合の展開状態
 var rankExpandName='';
 var indivMoExpand='',indivWkExpand='',indivWkLimit=12;
 var mergeMode=false,mergeSel=[],mergeConfirm=false,mergeForm={d:'',sess:0,sh:0,hi:0,mb:''};
@@ -3146,7 +3146,7 @@ function filterLabel(){
 /* ===== 試合（リーグ戦）の分析 ===== */
 function lgRecs(){
   var a=GM.filter(function(r){return isLeagueMode(r.mode);});
-  if(lgFilter!=='all')a=a.filter(function(r){return r.mode===lgFilter;});
+  a=a.filter(function(r){return r.mode===lgFilter;});
   return a.slice().sort(function(x,y){
     var dx=x.date||'',dy=y.date||'';
     if(dx!==dy)return dx<dy?1:-1;
@@ -3173,20 +3173,39 @@ function lgAgg(recs){
           blk[bi].sh++;blk[bi].hi+=h;
           tate[sl.tate].sh++;tate[sl.tate].hi+=h;
           var nm=asg[bi];
-          if(nm){if(!per[nm])per[nm]={sh:0,hi:0};per[nm].sh++;per[nm].hi+=h;}
+          if(nm){if(!per[nm])per[nm]={sh:0,hi:0,g:{}};per[nm].sh++;per[nm].hi+=h;per[nm].g[r.id]=1;}
         }
       }
     });
   });
   return {pos:pos,blk:blk,tate:tate,per:per};
 }
-function lgBar(hi,sh){
+function lgBar(hi,sh){ // 互換用（旧呼び出し）
+  return lgPerRow('',hi,sh);
+}
+/* 1行：名前｜棒｜的中率｜的中/射数（＋任意の補足）。列幅固定で折り返さない */
+function lgPerRow(name,hi,sh,note){
   var v=_pct(hi,sh);
-  return '<div style="display:flex;align-items:center;gap:8px">'
-    +'<div style="flex:1;height:7px;background:var(--sec);border-radius:4px;overflow:hidden">'
+  return '<div style="display:grid;grid-template-columns:'+(name?'4.6em ':'')+'1fr 3.2em 3.8em;align-items:center;column-gap:6px;padding:5px 0;border-top:1px solid var(--ln)">'
+    +(name?'<span style="font-size:12.5px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(name)+'</span>':'')
+    +'<div style="height:8px;background:var(--sec);border-radius:4px;overflow:hidden">'
       +'<div style="width:'+Math.min(100,v)+'%;height:100%;background:var(--acc)"></div>'
     +'</div>'
-    +'<span style="font-size:11.5px;width:74px;text-align:right;flex:none">'+hi+'/'+sh+'（'+v+'%）</span>'
+    +'<span style="font-size:13px;font-weight:800;text-align:right">'+v+'<span style="font-size:10px;font-weight:600">%</span></span>'
+    +'<span style="font-size:10.5px;color:var(--sub);text-align:right;line-height:1.2">'+hi+'/'+sh+(note?'<br>'+note:'')+'</span>'
+  +'</div>';
+}
+/* 横並びのタイル。一番高い的中率を強調する */
+function lgTiles(items){
+  return '<div style="display:grid;grid-template-columns:repeat('+items.length+',1fr);gap:5px">'
+    +items.map(function(it){
+      var v=_pct(it.hi,it.sh);
+      return '<div style="text-align:center;border-radius:8px;padding:7px 2px 6px;background:var(--sec)">'
+        +'<div style="font-size:10.5px;color:var(--sub);font-weight:700">'+esc(it.l)+'</div>'
+        +'<div style="font-size:15px;font-weight:800;line-height:1.3">'+(it.sh?v+'<span style="font-size:10px">%</span>':'—')+'</div>'
+        +'<div style="font-size:9.5px;color:var(--sub)">'+it.hi+'/'+it.sh+'</div>'
+      +'</div>';
+    }).join('')
   +'</div>';
 }
 /* 記録済みの試合を的中入力と同じ形の表で出す（閲覧専用。タップしても変わらない） */
@@ -3285,12 +3304,7 @@ function lgMatchDetail(r){
   var slots=lgSlots(r.mode)||[];
   var ps=lgPersonStats(r);
   var perRows=Object.keys(ps).sort(function(a,b){return _pct(ps[b].hi,ps[b].sh)-_pct(ps[a].hi,ps[a].sh);})
-    .map(function(n){
-      return '<div class="row" style="align-items:center;gap:8px;margin-bottom:4px">'
-        +'<span style="font-size:12px;width:76px;flex:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(n)+'</span>'
-        +lgBar(ps[n].hi,ps[n].sh)
-      +'</div>';
-    }).join('');
+    .map(function(n){return lgPerRow(n,ps[n].hi,ps[n].sh);}).join('');
   var kyoHtml='';
   if(r.kyosha){
     var kt=0,ktn=0,kh=0,khn=0;
@@ -3321,10 +3335,102 @@ function lgMatchDetail(r){
       :'')
   +'</div>';
 }
+/* ===== 試合と練習の比較 ===== */
+var LG_PRAC_DAYS=28;  // 各試合の何日前までの練習を「直近の練習」とみなすか
+/* 練習記録の日付。古い記録は日付がなく月・週だけなので、その週の中ほどの日で代用する */
+function _sRecDate(e){
+  if(e.date)return e.date;
+  if(!e.d)return '';
+  var w=e.sess||0;if(!w)return '';
+  var day=Math.min(28,(w-1)*7+4);
+  return e.d+'-'+(day<10?'0':'')+day;
+}
+function _dayNum(ds){var p=ds.split('-');return Date.UTC(+p[0],+p[1]-1,+p[2])/86400000;}
+/* 選手ごとに、出場した試合それぞれの前28日間の練習を合算（同じ記録は1回だけ数える） */
+function lgPracCompare(recs,ag){
+  var out={};
+  Object.keys(ag.per).forEach(function(nm){
+    var days=[];
+    recs.forEach(function(r){if(ag.per[nm].g[r.id]&&r.date)days.push(_dayNum(r.date));});
+    var sh=0,hi=0;
+    S.forEach(function(e){
+      if(e.mb!==nm||!e.sh)return;
+      var ds=_sRecDate(e);if(!ds)return;
+      var dn=_dayNum(ds);
+      for(var i=0;i<days.length;i++){
+        if(dn<days[i]&&dn>=days[i]-LG_PRAC_DAYS){sh+=e.sh;hi+=(e.hi||0);return;}
+      }
+    });
+    out[nm]={mSh:ag.per[nm].sh,mHi:ag.per[nm].hi,pSh:sh,pHi:hi};
+  });
+  return out;
+}
+/* 選手別の1行。灰色の棒＝直近の練習、色の棒＝試合。差は試合−練習 */
+function lgPerRowCmp(name,c){
+  var m=_pct(c.mHi,c.mSh),hasP=c.pSh>0,pr=hasP?_pct(c.pHi,c.pSh):0;
+  var d=hasP?Math.round((m-pr)*10)/10:null;
+  var dCol=d==null?'var(--sub)':d>=5?'var(--good)':d<=-5?'var(--bad,#c0392b)':'var(--ink)';
+  return '<div style="display:grid;grid-template-columns:4.6em 1fr 3.3em 3.3em;align-items:center;column-gap:6px;padding:6px 0;border-top:1px solid var(--ln)">'
+    +'<span style="font-size:12.5px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(name)+'</span>'
+    +'<div style="position:relative;height:12px;background:var(--sec);border-radius:4px;overflow:hidden">'
+      +(hasP?'<div style="position:absolute;left:0;top:0;bottom:0;width:'+Math.min(100,pr)+'%;background:var(--ln2)"></div>':'')
+      +'<div style="position:absolute;left:0;top:3px;bottom:3px;width:'+Math.min(100,m)+'%;background:var(--acc);border-radius:0 3px 3px 0"></div>'
+    +'</div>'
+    +'<span style="text-align:right;line-height:1.15"><span style="font-size:13px;font-weight:800">'+m+'<span style="font-size:10px">%</span></span><br><span style="font-size:9.5px;color:var(--sub)">'+c.mHi+'/'+c.mSh+'</span></span>'
+    +'<span style="text-align:right;line-height:1.15"><span style="font-size:13px;font-weight:800;color:'+dCol+'">'+(d==null?'—':(d>0?'+':'')+d)+'</span><br><span style="font-size:9.5px;color:var(--sub)">'+(hasP?'練'+pr+'%':'練習なし')+'</span></span>'
+  +'</div>';
+}
+/* ===== 選手×射位 ===== */
+function lgPosByPerson(recs){
+  var out={};
+  recs.forEach(function(r){
+    (lgSlots(r.mode)||[]).forEach(function(sl){
+      var col=(r.data&&r.data[sl.key])||[];
+      var asg=(r.lineup&&r.lineup[sl.key])||[];
+      var pk=sl.key.split('-')[1];
+      for(var b=0;b<LG_BLOCKS;b++){
+        var nm=asg[b];if(!nm)continue;
+        if(!out[nm])out[nm]={};
+        if(!out[nm][pk])out[nm][pk]={sh:0,hi:0};
+        for(var i=b*LG_PER;i<(b+1)*LG_PER;i++){
+          if(col[i]==null)continue;
+          out[nm][pk].sh++;if(col[i]===true)out[nm][pk].hi++;
+        }
+      }
+    });
+  });
+  return out;
+}
+function lgPosSection(recs,ag){
+  var pp=lgPosByPerson(recs);
+  var names=Object.keys(ag.per).sort(function(a,b){return ag.per[b].sh-ag.per[a].sh;});
+  if(!names.length)return '';
+  var cols='4.6em repeat('+LG_POS.length+',1fr)';
+  var head='<div style="display:grid;grid-template-columns:'+cols+';column-gap:4px;font-size:10.5px;color:var(--sub);font-weight:700;padding:0 0 4px">'
+    +'<span></span>'+LG_POS.map(function(p){return '<span style="text-align:center">'+p.l+'</span>';}).join('')+'</div>';
+  var rows=names.map(function(nm){
+    return '<div style="display:grid;grid-template-columns:'+cols+';column-gap:4px;align-items:center;padding:4px 0;border-top:1px solid var(--ln)">'
+      +'<span style="font-size:12.5px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(nm)+'</span>'
+      +LG_POS.map(function(p){
+        var v=(pp[nm]||{})[p.k];
+        if(!v||!v.sh)return '<span style="text-align:center;color:var(--faint);font-size:12px">—</span>';
+        var pc=_pct(v.hi,v.sh);
+        return '<span style="text-align:center;line-height:1.15;background:var(--sec);border-radius:6px;padding:4px 0">'
+          +'<span style="font-size:13px;font-weight:700">'+pc+'%</span><br>'
+          +'<span style="font-size:9.5px;color:var(--sub)">'+v.hi+'/'+v.sh+'</span></span>';
+      }).join('')
+    +'</div>';
+  }).join('');
+  return '<div class="card mb10">'
+    +'<div style="font-size:13px;font-weight:800;margin-bottom:2px">選手×射位</div>'
+    +'<div style="font-size:10.5px;color:var(--sub);margin-bottom:10px">前立・後立は合算。射数の多い順</div>'
+    +head+rows
+  +'</div>';
+}
 function tLeague(){
   var recs=lgRecs();
   var filt='<div class="row mb10" style="gap:6px">'
-    +[['all','すべて'],['league_m','男子'],['league_f','女子']].map(function(f){
+    +[['league_m','男子'],['league_f','女子']].map(function(f){
       return '<button class="xb" data-lg-filter="'+f[0]+'" style="flex:1;padding:7px 4px;font-size:12px;border:1px solid var(--ln2);border-radius:8px;'
         +(lgFilter===f[0]?'background:var(--acc);color:#fff;font-weight:700':'color:var(--sub)')+'">'+f[1]+'</button>';
     }).join('')
@@ -3343,30 +3449,39 @@ function tLeague(){
     +'<div style="display:flex;gap:10px;margin-bottom:10px">'
       +'<div style="flex:1;text-align:center;background:var(--sec);border-radius:8px;padding:8px 4px"><div style="font-size:18px;font-weight:800">'+win+'</div><div style="font-size:10.5px;color:var(--sub)">勝</div></div>'
       +'<div style="flex:1;text-align:center;background:var(--sec);border-radius:8px;padding:8px 4px"><div style="font-size:18px;font-weight:800">'+lose+'</div><div style="font-size:10.5px;color:var(--sub)">敗</div></div>'
-      +'<div style="flex:1;text-align:center;background:var(--sec);border-radius:8px;padding:8px 4px"><div style="font-size:18px;font-weight:800">'+draw+'</div><div style="font-size:10.5px;color:var(--sub)">同中</div></div>'
-      +'<div style="flex:1.4;text-align:center;background:var(--sec);border-radius:8px;padding:8px 4px"><div style="font-size:18px;font-weight:800">'+_pct(totHi,totSh)+'%</div><div style="font-size:10.5px;color:var(--sub)">'+totHi+'/'+totSh+'射</div></div>'
+      +(function(){
+        var full=LG_BLOCKS*LG_PER*lgSlots(lgFilter).length;   // 男子160・女子80
+        var avg=recs.length?Math.round(totHi/recs.length*10)/10:0;
+        return '<div style="flex:1.8;text-align:center;background:var(--sec);border-radius:8px;padding:8px 4px">'
+          +'<div style="font-size:18px;font-weight:800">'+_pct(totHi,totSh)+'%</div>'
+          +'<div style="font-size:10.5px;color:var(--sub)">平均 <b style="color:var(--ink)">'+avg+'</b>/'+full+'射</div>'
+        +'</div>';
+      })()
     +'</div>'
-    +'<div style="font-size:11.5px;font-weight:700;margin:12px 0 6px">射位別</div>'
-    +LG_POS.map(function(p){
-      var v=ag.pos[p.k]||{sh:0,hi:0};
-      return '<div class="row" style="align-items:center;gap:8px;margin-bottom:4px"><span style="font-size:12px;width:40px;flex:none">'+p.l+'</span>'+lgBar(v.hi,v.sh)+'</div>';
-    }).join('')
+    +'<div style="font-size:11.5px;font-weight:700;margin:14px 0 6px">射位別</div>'
+    +lgTiles(LG_POS.map(function(p){var v=ag.pos[p.k]||{sh:0,hi:0};return {l:p.l,hi:v.hi,sh:v.sh};}))
     +'<div style="font-size:11.5px;font-weight:700;margin:14px 0 6px">立目別</div>'
-    +(function(){var r='';for(var b=0;b<LG_BLOCKS;b++){var v=ag.blk[b];r+='<div class="row" style="align-items:center;gap:8px;margin-bottom:4px"><span style="font-size:12px;width:40px;flex:none">'+(b+1)+'立目</span>'+lgBar(v.hi,v.sh)+'</div>';}return r;})()
+    +lgTiles((function(){var a=[];for(var b=0;b<LG_BLOCKS;b++)a.push({l:(b+1)+'立目',hi:ag.blk[b].hi,sh:ag.blk[b].sh});return a;})())
     +(Object.keys(ag.tate).length>1
       ?'<div style="font-size:11.5px;font-weight:700;margin:14px 0 6px">立別</div>'
-        +Object.keys(ag.tate).map(function(k){
-          var v=ag.tate[k];
-          return '<div class="row" style="align-items:center;gap:8px;margin-bottom:4px"><span style="font-size:12px;width:40px;flex:none">'+esc(v.l)+'</span>'+lgBar(v.hi,v.sh)+'</div>';
-        }).join('')
+        +lgTiles((LG_TATE.league_m||[]).filter(function(t){return ag.tate[t.k];}).map(function(t){var v=ag.tate[t.k];return {l:v.l,hi:v.hi,sh:v.sh};}))
       :'')
-    +'<div style="font-size:11.5px;font-weight:700;margin:14px 0 6px">選手別（試合のみ）</div>'
-    +Object.keys(ag.per).sort(function(a,b){return _pct(ag.per[b].hi,ag.per[b].sh)-_pct(ag.per[a].hi,ag.per[a].sh);})
-      .map(function(n){
-        return '<div class="row" style="align-items:center;gap:8px;margin-bottom:4px">'
-          +'<span style="font-size:12px;width:76px;flex:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(n)+'</span>'
-          +lgBar(ag.per[n].hi,ag.per[n].sh)+'</div>';
-      }).join('')
+    +(function(){
+      var cmp=lgPracCompare(recs,ag);
+      var names=Object.keys(cmp).sort(function(x,y){
+        var d=_pct(cmp[y].mHi,cmp[y].mSh)-_pct(cmp[x].mHi,cmp[x].mSh);
+        return d||cmp[y].mSh-cmp[x].mSh;
+      });
+      return '<div style="display:flex;align-items:baseline;justify-content:space-between;margin:16px 0 4px">'
+          +'<span style="font-size:11.5px;font-weight:700">選手別</span>'
+          +'<span style="font-size:10px;color:var(--sub)">'
+            +'<span style="display:inline-block;width:10px;height:6px;background:var(--acc);border-radius:2px;margin-right:3px"></span>試合　'
+            +'<span style="display:inline-block;width:10px;height:6px;background:var(--ln2);border-radius:2px;margin-right:3px"></span>練習（各試合の前'+LG_PRAC_DAYS+'日）'
+          +'</span>'
+        +'</div>'
+        +'<div style="display:grid;grid-template-columns:4.6em 1fr 3.3em 3.3em;column-gap:6px;font-size:10px;color:var(--sub);font-weight:700;padding-bottom:2px"><span></span><span></span><span style="text-align:right">試合</span><span style="text-align:right">差</span></div>'
+        +names.map(function(n){return lgPerRowCmp(n,cmp[n]);}).join('');
+    })()
   +'</div>';
   var list=recs.map(function(r){
     var res=r.oppHits==null?'—'
@@ -3391,7 +3506,7 @@ function tLeague(){
       +(open?lgMatchDetail(r):'')
     +'</div>';
   }).join('');
-  return filt+summary+list;
+  return filt+summary+lgPosSection(recs,ag)+list;
 }
 function tTb(){
   if(tableView==='indiv')return tIndivDetail();
