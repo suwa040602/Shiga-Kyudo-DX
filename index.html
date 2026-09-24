@@ -244,7 +244,7 @@ button.tap-bounce{animation:tapBounce .16s ease-out}
    ・マイナー : 機能の追加・仕様の変更（パッチは0に戻す）
    ・パッチ : バグ修正・見た目の微調整・名称変更など
    履歴: v1 build1(6/8 端末内版) / v2 build53(6/13 Firebase共有) / v3 build117(7/2 日付ベース記録) / v4 build170(7/15 4タブ構成) */
-var APP_VERSION='4.24.3',APP_BUILD=243;
+var APP_VERSION='4.25.0',APP_BUILD=244;
 (function(){var el=document.getElementById('app-ver');if(el)el.textContent='v'+APP_VERSION+' (build '+APP_BUILD+')';})();
 var SEED_E=[];
 var SEED_M=[];
@@ -3859,22 +3859,44 @@ function recHasKaichu(e){
   // 内訳なし：保存済みフラグ or 4射4中レコードで代替
   return e.kaichu===true||(e.sh===4&&e.hi===4);
 }
+/* 実績バッジの解放日表示用。日付あり→2025.9.24、日付なし（週単位の記録）→2025.9 第2週 */
+function achDateLabel(e){
+  if(e.date){var p=String(e.date).split('-');return p[0]+'.'+parseInt(p[1],10)+'.'+parseInt(p[2],10);}
+  var q=String(e.d||'').split('-');if(q.length<2)return '';
+  var w=recWeek(e);
+  return q[0]+'.'+parseInt(q[1],10)+(w>0?' 第'+w+'週':'');
+}
+/* 記録を古い順に並べるためのキー（日付なしは週から日付を概算） */
+function achSortKey(e){
+  if(e.date)return String(e.date);
+  var w=recWeek(e);var day=w>0?w*7-6:28;
+  return (e.d||'')+'-'+(day<10?'0':'')+day;
+}
 function getAchievements(name){
-  var entries=S.filter(function(e){return e.mb===name;});
+  var entries=S.filter(function(e){return e.mb===name;})
+    .sort(function(a,b){var ka=achSortKey(a),kb=achSortKey(b);return ka<kb?-1:ka>kb?1:0;});
   var manual=(Meta[name]&&Meta[name].ach)||{};
-  function chk(key,autoFn){
-    if(autoFn())return{achieved:true,auto:true};      // 基準到達 → 常に自動（★）優先
-    if(manual[key])return{achieved:true,auto:false};  // 未到達だが手動解放済み（✓）
-    return{achieved:false,auto:true};
+  function chk(key,pred){
+    // 基準到達 → 常に自動（★）優先。最初に条件を満たした記録の日付を解放日とする
+    for(var i=0;i<entries.length;i++){
+      if(pred(entries[i]))return{achieved:true,auto:true,dateLabel:achDateLabel(entries[i])};
+    }
+    // 未到達だが手動解放済み（✓）。解放時に日付を保存するようにした（以前の手動解放は true のみで日付なし）
+    if(manual[key]){
+      var m=manual[key];
+      return{achieved:true,auto:false,dateLabel:typeof m==='string'?achDateLabel({date:m}):''};
+    }
+    return{achieved:false,auto:true,dateLabel:''};
   }
+  function never(){return false;}
   return{
-    firstHit:    chk('firstHit',    function(){return entries.some(function(e){return e.hi>0;});}),
-    firstPerfect:chk('firstPerfect',function(){return entries.some(recHasKaichu);}),
-    firstHalf:   chk('firstHalf',   function(){return entries.some(function(e){return e.sh===20&&e.hi>=10;});}),
-    firstBlue:   chk('firstBlue',   function(){return entries.some(function(e){return e.sh===20&&e.hi>=14;});}),
-    firstRed:    chk('firstRed',    function(){return entries.some(function(e){return e.sh===20&&e.hi>=18;});}),
-    firstEye:    chk('firstEye',    function(){return false;}),
-    firstTwenty: chk('firstTwenty', function(){return entries.some(function(e){return e.sh===20&&e.hi===20;});})
+    firstHit:    chk('firstHit',    function(e){return e.hi>0;}),
+    firstPerfect:chk('firstPerfect',recHasKaichu),
+    firstHalf:   chk('firstHalf',   function(e){return e.sh===20&&e.hi>=10;}),
+    firstBlue:   chk('firstBlue',   function(e){return e.sh===20&&e.hi>=14;}),
+    firstRed:    chk('firstRed',    function(e){return e.sh===20&&e.hi>=18;}),
+    firstEye:    chk('firstEye',    never),
+    firstTwenty: chk('firstTwenty', function(e){return e.sh===20&&e.hi===20;})
   };
 }
 function toggleAchievement(name,key){
@@ -3884,7 +3906,7 @@ function toggleAchievement(name,key){
     delete Meta[name].ach[key];
   }else{
     var ach=getAchievements(name);
-    if(!ach[key].achieved)Meta[name].ach[key]=true;
+    if(!ach[key].achieved)Meta[name].ach[key]=todayStr(); // 解放日を残す（真値として扱われるので従来の判定とも互換）
   }
   svM();paint();
 }
@@ -3906,11 +3928,13 @@ function personBadge(name,achObj,label,key){
         +(indicator?'<span style="position:absolute;bottom:-1px;right:-1px;font-size:11px;font-weight:800;color:'+lblColor+'">'+indicator+'</span>':'')
       +'</div>'
       +'<div style="font-size:9px;font-weight:700;color:'+lblColor+';text-align:center;margin-top:3px">'+label+'</div>'
+      +(isOn&&achObj.dateLabel?'<div style="font-size:8px;color:var(--sub);text-align:center;margin-top:1px;white-space:nowrap">'+esc(achObj.dateLabel)+'</div>':'')
       +'</div>';
   }
   // テキストチップ（画像未設定）
-  if(isOn&&!isManual)return '<span class="achv achv-on"'+dataAttrs+'>★ '+label+'</span>';
-  if(isManual)return '<span class="achv achv-manual"'+dataAttrs+'>✓ '+label+'</span>';
+  var dl=achObj.dateLabel?' <small style="opacity:.7">'+esc(achObj.dateLabel)+'</small>':'';
+  if(isOn&&!isManual)return '<span class="achv achv-on"'+dataAttrs+'>★ '+label+dl+'</span>';
+  if(isManual)return '<span class="achv achv-manual"'+dataAttrs+'>✓ '+label+dl+'</span>';
   return '<span class="achv achv-off"'+dataAttrs+'>'+label+' +</span>';
 }
 /* プロフィールカード（公式通算・最高月・実績バッジ） */
