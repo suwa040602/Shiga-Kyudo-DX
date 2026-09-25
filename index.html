@@ -244,7 +244,7 @@ button.tap-bounce{animation:tapBounce .16s ease-out}
    ・マイナー : 機能の追加・仕様の変更（パッチは0に戻す）
    ・パッチ : バグ修正・見た目の微調整・名称変更など
    履歴: v1 build1(6/8 端末内版) / v2 build53(6/13 Firebase共有) / v3 build117(7/2 日付ベース記録) / v4 build170(7/15 4タブ構成) */
-var APP_VERSION='4.25.0',APP_BUILD=244;
+var APP_VERSION='4.26.0',APP_BUILD=245;
 (function(){var el=document.getElementById('app-ver');if(el)el.textContent='v'+APP_VERSION+' (build '+APP_BUILD+')';})();
 var SEED_E=[];
 var SEED_M=[];
@@ -739,6 +739,7 @@ var mergeMode=false,mergeSel=[],mergeConfirm=false,mergeForm={d:'',sess:0,sh:0,h
 var SP=[],KSP='kyudo_sp_v1';
 var Pins={},KPINS='kyudo_pins_v1';
 var myMb='',KME='kyudo_me_v1';
+var anaPeriod='3m',anaGran='week';
 var selfSub='official',selfPracSub='input',selfOffSub='official',selfForm={date:'',sh:'20',hi:''},selfMarks=[];
 var selfMoKey=null;
 var selfLoginName='',selfSetMode=false;
@@ -1672,6 +1673,8 @@ var CLICK_ATTR=[
   ['data-self-sub',function(el){selfSub=el.getAttribute('data-self-sub');paint();}],
   ['data-self-prac',function(el){selfPracSub=el.getAttribute('data-self-prac');paint();}],
   ['data-self-off',function(el){selfOffSub=el.getAttribute('data-self-off');paint();}],
+  ['data-ana-period',function(el){anaPeriod=el.getAttribute('data-ana-period');paint();}],
+  ['data-ana-gran',function(el){anaGran=el.getAttribute('data-ana-gran');paint();}],
   ['data-self-del',function(el){delSelf(parseInt(el.getAttribute('data-self-del'),10));}],
   ['data-self-idx',function(el){toggleSelfShot(parseInt(el.getAttribute('data-self-idx'),10));}],
   ['data-pen-sub',function(el){penSubTab=el.getAttribute('data-pen-sub');penaltyView='list';jobView='list';paint();}],
@@ -4096,45 +4099,311 @@ function analysisBar(hit,sh){
     +'<span style="width:56px;text-align:right;font-size:12px;color:'+rc(r)+';font-weight:700">'+(sh?pct+'%':'—')+'</span>'
     +'<span style="width:42px;text-align:right;font-size:11px;color:var(--sub)" class="mono">'+hit+'/'+sh+'</span>';
 }
-function personAnalysisView(name){
-  var a=indivShotAnalysis(name);
-  if(!a.recCount){
-    return '<div class="emp" style="padding:20px 0;font-size:12.5px">射ごとの内訳がある記録がまだありません。<br>今後の分附記録から自動で分析されます。</div>';
+/* ======= 詳細分析（マイページ・個人ページの「分析」タブ） =======
+   期間で絞り込んだ練習記録(S)・試合記録(GM)から、推移グラフ・射の傾向・試合成績を出す */
+function anaAddDays(d,n){var t=new Date(d+'T00:00:00Z');t.setUTCDate(t.getUTCDate()+n);return t.toISOString().slice(0,10);}
+/* 期間 → {from,to,prevFrom,prevTo,label}。from/to は含む。'all' は from なし */
+function anaRange(p){
+  var to=todayStr();
+  if(p==='1m'||p==='3m'){
+    var n=p==='1m'?30:91;
+    var from=anaAddDays(to,-(n-1));
+    return{from:from,to:to,prevFrom:anaAddDays(from,-n),prevTo:anaAddDays(from,-1),prevLabel:'その前の'+(p==='1m'?'30日':'3か月')};
   }
-  // サマリ
-  var summary='<div style="display:flex;gap:8px;margin-bottom:12px">'
-    +'<div style="flex:1;background:var(--sf);border:1px solid var(--ln);border-radius:11px;padding:10px 8px;text-align:center">'
-      +'<div style="font-size:20px;font-weight:800;color:var(--acc)">'+a.kaichuCount+'</div>'
-      +'<div style="font-size:10.5px;color:var(--sub);margin-top:2px">皆中（立）</div></div>'
-    +'<div style="flex:1;background:var(--sf);border:1px solid var(--ln);border-radius:11px;padding:10px 8px;text-align:center">'
-      +'<div style="font-size:20px;font-weight:800;color:var(--info)">'+a.maxStreak+'</div>'
-      +'<div style="font-size:10.5px;color:var(--sub);margin-top:2px">最長連中</div></div>'
-    +'<div style="flex:1;background:var(--sf);border:1px solid var(--ln);border-radius:11px;padding:10px 8px;text-align:center">'
-      +'<div style="font-size:20px;font-weight:800;color:var(--ink)">'+a.tachiTotal+'</div>'
-      +'<div style="font-size:10.5px;color:var(--sub);margin-top:2px">総立数</div></div>'
+  if(p==='fy'){
+    var y=parseInt(to.slice(0,4),10),m=parseInt(to.slice(5,7),10);
+    var fy=m>=4?y:y-1;
+    return{from:fy+'-04-01',to:to,prevFrom:(fy-1)+'-04-01',prevTo:(fy)+'-03-31',prevLabel:'昨年度'};
+  }
+  return{from:'',to:'9999-12-31'};
+}
+function anaIn(key,from,to){return (!from||key>=from)&&key<=to;}
+/* 練習記録の日付キー（日付なしは週から概算） */
+function anaKey(e){return achSortKey(e);}
+function anaRecs(name,from,to){
+  return S.filter(function(e){return (!name||e.mb===name)&&e.sh>0&&anaIn(anaKey(e),from,to);})
+    .sort(function(a,b){var ka=anaKey(a),kb=anaKey(b);return ka<kb?-1:ka>kb?1:0;});
+}
+function anaSum(recs){var sh=0,hi=0;recs.forEach(function(e){sh+=e.sh;hi+=e.hi;});return{sh:sh,hi:hi,rate:sh?hi/sh:0};}
+function anaPct(r){return (r*100).toFixed(1)+'%';}
+function anaSec(title,note,inner){
+  return '<p style="font-size:12px;font-weight:700;color:var(--sub);margin:14px 0 4px">'+title+'</p>'
+    +(note?'<div style="font-size:10.5px;color:var(--faint);margin-bottom:6px">'+note+'</div>':'')
+    +'<div style="background:var(--sf);border:1px solid var(--ln);border-radius:13px;padding:12px 14px">'+inner+'</div>';
+}
+function anaBarRow(lbl,hit,sh){
+  return '<div style="display:flex;align-items:center;gap:8px;margin:5px 0">'
+    +'<span style="width:64px;font-size:12px;color:var(--sub);flex:none">'+lbl+'</span>'+analysisBar(hit,sh)+'</div>';
+}
+function anaTile(val,lbl,sub,color){
+  return '<div style="flex:1;min-width:0;background:var(--sf);border:1px solid var(--ln);border-radius:11px;padding:10px 6px;text-align:center">'
+    +'<div style="font-size:19px;font-weight:800;color:'+(color||'var(--ink)')+'">'+val+'</div>'
+    +'<div style="font-size:10.5px;color:var(--sub);margin-top:2px">'+lbl+'</div>'
+    +(sub?'<div style="font-size:10px;margin-top:2px">'+sub+'</div>':'')
     +'</div>';
-  // 立ち内の位置別（1〜4本目）
-  var posRows='';
-  ['1本目','2本目','3本目','4本目'].forEach(function(lbl,i){
-    posRows+='<div style="display:flex;align-items:center;gap:8px;margin:5px 0">'
-      +'<span style="width:44px;font-size:12px;color:var(--sub)">'+lbl+'</span>'
-      +analysisBar(a.posHit[i],a.posSh[i])+'</div>';
+}
+/* ---- 推移グラフ ---- */
+function anaBuckets(recs,gran){
+  var map={},keys=[];
+  recs.forEach(function(e){
+    var k;
+    if(gran==='month')k=e.d;
+    else{var w=recWeek(e);if(!w)return;k=e.d+'|'+w;}
+    if(!map[k]){map[k]={sh:0,hi:0};keys.push(k);}
+    map[k].sh+=e.sh;map[k].hi+=e.hi;
   });
-  // 立ち順別（1〜5立ち目）
-  var tRows='';
-  for(var t=0;t<5;t++){
-    if(!a.tachiSh[t])continue;
-    tRows+='<div style="display:flex;align-items:center;gap:8px;margin:5px 0">'
-      +'<span style="width:44px;font-size:12px;color:var(--sub)">'+(t+1)+'立目</span>'
-      +analysisBar(a.tachiHit[t],a.tachiSh[t])+'</div>';
+  keys.sort(function(a,b){
+    var pa=a.split('|'),pb=b.split('|');
+    return pa[0]!==pb[0]?(pa[0]<pb[0]?-1:1):(parseInt(pa[1]||0,10)-parseInt(pb[1]||0,10));
+  });
+  return{keys:keys,map:map};
+}
+function anaBucketLbl(k,gran){
+  var p=k.split('|'),ym=p[0].split('-');
+  return gran==='month'?(parseInt(ym[1],10)+'月'):(parseInt(ym[1],10)+'/'+p[1]+'週');
+}
+function anaTrendChart(name,rg,gran){
+  var mine=anaBuckets(anaRecs(name,rg.from,rg.to),gran);
+  if(mine.keys.length<2)return '<div class="emp" style="padding:14px 0;font-size:12px">この期間は点が2つ未満のため、グラフを表示できません</div>';
+  var team=anaBuckets(anaRecs('',rg.from,rg.to),gran);
+  var ks=mine.keys,n=ks.length;
+  var W=340,H=170,L=30,R=10,T=10,B=24,pw=W-L-R,ph=H-T-B;
+  function x(i){return L+(n===1?pw/2:pw*i/(n-1));}
+  function y(r){return T+ph*(1-r);}
+  var me=ks.map(function(k){var b=mine.map[k];return b.hi/b.sh;});
+  var tm=ks.map(function(k){var b=team.map[k];return b&&b.sh?b.hi/b.sh:null;});
+  // 移動平均（直近3区間、射数で重み付け）
+  var ma=ks.map(function(k,i){
+    var sh=0,hi=0;for(var j=Math.max(0,i-2);j<=i;j++){var b=mine.map[ks[j]];sh+=b.sh;hi+=b.hi;}
+    return sh?hi/sh:0;
+  });
+  function path(arr){
+    var d='',pen=false;
+    arr.forEach(function(v,i){if(v==null){pen=false;return;}d+=(pen?'L':'M')+x(i).toFixed(1)+' '+y(v).toFixed(1);pen=true;});
+    return d;
   }
-  return summary
-    +'<p style="font-size:12px;font-weight:700;color:var(--sub);margin:0 0 4px">立ち内の位置別 的中率</p>'
-    +'<div style="font-size:10.5px;color:var(--faint);margin-bottom:6px">4射のうち何本目かで見た的中率（射込みの傾向）</div>'
-    +'<div style="background:var(--sf);border:1px solid var(--ln);border-radius:13px;padding:12px 14px">'+posRows+'</div>'
-    +'<p style="font-size:12px;font-weight:700;color:var(--sub);margin:12px 0 4px">立ち順別 的中率</p>'
-    +'<div style="font-size:10.5px;color:var(--faint);margin-bottom:6px">1立目〜5立目で見た的中率（集中力の推移）</div>'
-    +'<div style="background:var(--sf);border:1px solid var(--ln);border-radius:13px;padding:12px 14px">'+tRows+'</div>';
+  var g='';
+  [0,.25,.5,.75,1].forEach(function(v){
+    g+='<line x1="'+L+'" x2="'+(W-R)+'" y1="'+y(v)+'" y2="'+y(v)+'" stroke="var(--ln)" stroke-width="1"/>'
+      +'<text x="'+(L-4)+'" y="'+(y(v)+3)+'" text-anchor="end" font-size="9" fill="var(--faint)">'+(v*100)+'%</text>';
+  });
+  // x軸ラベルは最大6個に間引く
+  var step=Math.max(1,Math.ceil(n/6)),xl='';
+  for(var i=0;i<n;i+=step){
+    xl+='<text x="'+x(i)+'" y="'+(H-6)+'" text-anchor="middle" font-size="9" fill="var(--faint)">'+anaBucketLbl(ks[i],gran)+'</text>';
+  }
+  var dots='';
+  if(n<=40)me.forEach(function(v,i){
+    var b=mine.map[ks[i]];
+    dots+='<circle cx="'+x(i)+'" cy="'+y(v)+'" r="3" fill="var(--sf)" stroke="var(--acc)" stroke-width="1.5" opacity=".55"><title>'
+      +anaBucketLbl(ks[i],gran)+'：'+anaPct(v)+'（'+b.hi+'/'+b.sh+'）'+(tm[i]!=null?' 部平均 '+anaPct(tm[i]):'')+'</title></circle>';
+  });
+  var lastR=ma[n-1];
+  var svg='<svg viewBox="0 0 '+W+' '+H+'" style="width:100%;height:auto;display:block" role="img" aria-label="的中率の推移">'
+    +g+xl
+    +'<path d="'+path(tm)+'" fill="none" stroke="var(--faint)" stroke-width="1.5" stroke-dasharray="4 3"/>'
+    +'<path d="'+path(me)+'" fill="none" stroke="var(--acc)" stroke-width="1" opacity=".35"/>'
+    +dots
+    +'<path d="'+path(ma)+'" fill="none" stroke="var(--acc)" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round"/>'
+    +'<circle cx="'+x(n-1)+'" cy="'+y(lastR)+'" r="4" fill="var(--acc)"/>'
+    +'</svg>';
+  var leg='<div style="display:flex;flex-wrap:wrap;gap:12px;font-size:10.5px;color:var(--sub);margin-top:4px">'
+    +'<span><svg width="18" height="8"><line x1="0" y1="4" x2="18" y2="4" stroke="var(--acc)" stroke-width="2.2"/></svg> 自分（3区間平均）</span>'
+    +'<span><svg width="18" height="8"><line x1="0" y1="4" x2="18" y2="4" stroke="var(--acc)" stroke-width="1" opacity=".4"/><circle cx="9" cy="4" r="2.5" fill="var(--sf)" stroke="var(--acc)" opacity=".6"/></svg> 自分（各'+(gran==='month'?'月':'週')+'）</span>'
+    +'<span><svg width="18" height="8"><line x1="0" y1="4" x2="18" y2="4" stroke="var(--faint)" stroke-width="1.5" stroke-dasharray="4 3"/></svg> 部平均</span>'
+    +'</div>';
+  // 表でも見られるように（点を押さなくても数値が分かる）
+  var rows='';
+  ks.slice().reverse().forEach(function(k){
+    var i=ks.indexOf(k),b=mine.map[k];
+    var kp=k.split('|');
+    rows+='<tr><td class="tl" style="font-size:12px">'+fm(kp[0])+(kp[1]?' 第'+kp[1]+'週':'')+'</td>'
+      +'<td style="font-weight:700;color:'+rc(me[i])+'">'+anaPct(me[i])+'</td>'
+      +'<td class="mono" style="font-size:12px;color:var(--sub)">'+b.hi+'/'+b.sh+'</td>'
+      +'<td style="font-size:12px;color:var(--sub)">'+(tm[i]!=null?anaPct(tm[i]):'—')+'</td></tr>';
+  });
+  var tbl='<details style="margin-top:8px"><summary style="font-size:11.5px;color:var(--sub);cursor:pointer">数値を表で見る</summary>'
+    +'<div class="tc" style="margin-top:6px"><table><colgroup><col><col width="62"><col width="64"><col width="58"></colgroup>'
+    +'<thead><tr><th class="tl">'+(gran==='month'?'月':'週')+'</th><th>的中率</th><th>的中/射数</th><th>部平均</th></tr></thead>'
+    +'<tbody>'+rows+'</tbody></table></div></details>';
+  return svg+leg+tbl;
+}
+/* ---- 射の傾向（内訳seqのある記録のみ） ---- */
+function anaShotDeep(recs){
+  var o={recs:0,haya:[0,0],oto:[0,0],afterHit:[0,0],afterMiss:[0,0],dist:[0,0,0,0,0],
+         front:[0,0],back:[0,0],n20:0,maxStreak:0,maxMiss:0,
+         pos:[[0,0],[0,0],[0,0],[0,0]],tachi:[[0,0],[0,0],[0,0],[0,0],[0,0]]};
+  recs.forEach(function(e){
+    var s=e.seq;if(typeof s!=='string'||s.length<4)return;
+    o.recs++;
+    var cur=0,curM=0;
+    for(var i=0;i<s.length;i++){
+      var h=s[i]==='1';
+      if(h){cur++;curM=0;if(cur>o.maxStreak)o.maxStreak=cur;}else{curM++;cur=0;if(curM>o.maxMiss)o.maxMiss=curM;}
+      if(i>0){var prev=s[i-1]==='1'?o.afterHit:o.afterMiss;prev[1]++;if(h)prev[0]++;}
+    }
+    for(var t=0;t*4+4<=s.length;t++){
+      var set=s.substr(t*4,4),c=0;
+      for(var p=0;p<4;p++){
+        var hh=set[p]==='1';if(hh)c++;
+        o.pos[p][1]++;if(hh)o.pos[p][0]++;
+        var hy=p%2===0?o.haya:o.oto;hy[1]++;if(hh)hy[0]++;
+      }
+      o.dist[c]++;
+      if(t<5){o.tachi[t][1]+=4;o.tachi[t][0]+=c;}
+    }
+    if(s.length===20){
+      o.n20++;
+      for(var k=0;k<20;k++){var half=k<10?o.front:o.back;half[1]++;if(s[k]==='1')half[0]++;}
+    }
+  });
+  return o;
+}
+function anaDistHTML(dist){
+  var tot=dist.reduce(function(a,b){return a+b;},0);if(!tot)return '';
+  var avg=(dist[1]+dist[2]*2+dist[3]*3+dist[4]*4)/tot;
+  var out='';
+  for(var c=4;c>=0;c--){
+    var r=dist[c]/tot;
+    out+='<div style="display:flex;align-items:center;gap:8px;margin:5px 0">'
+      +'<span style="width:64px;font-size:12px;color:var(--sub);flex:none">'+(c===4?'皆中':c+'中')+'</span>'
+      +'<div style="flex:1;height:16px;background:var(--sec);border-radius:8px;overflow:hidden"><div style="height:100%;width:'+(r*100)+'%;background:var(--acc);opacity:'+(0.35+c*0.16)+';border-radius:8px"></div></div>'
+      +'<span style="width:56px;text-align:right;font-size:12px;font-weight:700">'+(r*100).toFixed(0)+'%</span>'
+      +'<span style="width:42px;text-align:right;font-size:11px;color:var(--sub)" class="mono">'+dist[c]+'立</span></div>';
+  }
+  return out+'<div style="font-size:11px;color:var(--sub);margin-top:6px">1立あたり平均 <b style="color:var(--ink)">'+avg.toFixed(2)+'</b> 中（'+tot+'立）</div>';
+}
+function anaDiffTag(a,b){
+  // a,b は [hit,sh]。差をポイントで
+  if(!a[1]||!b[1])return '';
+  var d=(a[0]/a[1]-b[0]/b[1])*100;
+  return '<span style="font-size:11px;color:var(--sub)">差 '+(d>=0?'+':'')+d.toFixed(1)+'pt</span>';
+}
+/* ---- 試合成績（リーグ戦・新人戦） ---- */
+function anaMatch(name,from,to){
+  var o={games:[],tot:[0,0],pos:{},posOrder:[],mode:{},modeOrder:[]};
+  GM.filter(function(r){return isLeagueMode(r.mode)&&r.date&&anaIn(r.date,from,to);})
+    .sort(function(a,b){return a.date<b.date?1:a.date>b.date?-1:b.id-a.id;})
+    .forEach(function(r){
+      var blocks=lgBlocksOf(r),g={r:r,hi:0,sh:0,pos:[]};
+      lgSlots(r.mode).forEach(function(sl){
+        var who=(r.lineup||{})[sl.key]||[],shots=(r.data||{})[sl.key]||[];
+        var used=false;
+        for(var b=0;b<blocks;b++){
+          if(who[b]!==name)continue;
+          for(var k=b*LG_PER;k<(b+1)*LG_PER;k++){
+            var v=shots[k];if(v==null)continue;
+            used=true;g.sh++;if(v===true)g.hi++;
+            if(!o.pos[sl.posLbl]){o.pos[sl.posLbl]=[0,0];o.posOrder.push(sl.posLbl);}
+            o.pos[sl.posLbl][1]++;if(v===true)o.pos[sl.posLbl][0]++;
+          }
+        }
+        if(used&&g.pos.indexOf(sl.label)<0)g.pos.push(sl.label);
+      });
+      if(!g.sh)return;
+      o.games.push(g);o.tot[0]+=g.hi;o.tot[1]+=g.sh;
+      var ml=bunModeLabel(r.mode);
+      if(!o.mode[ml]){o.mode[ml]=[0,0];o.modeOrder.push(ml);}
+      o.mode[ml][0]+=g.hi;o.mode[ml][1]+=g.sh;
+    });
+  // 射位は大前→落の順に並べる
+  var order=LG_POS6.map(function(p){return p.l;}).concat(LG_POS.map(function(p){return p.l;}));
+  o.posOrder.sort(function(a,b){return order.indexOf(a)-order.indexOf(b);});
+  return o;
+}
+function anaMatchHTML(name,rg,pracRate){
+  var m=anaMatch(name,rg.from,rg.to);
+  if(!m.games.length)return anaSec('試合成績','リーグ戦・新人戦で自分が引いた射のみ（競射は除く）','<div class="emp" style="padding:8px 0;font-size:12px">この期間の試合記録はありません</div>');
+  var r=m.tot[0]/m.tot[1];
+  var head='<div style="display:flex;gap:8px;margin-bottom:10px">'
+    +anaTile('<span style="color:'+rc(r)+'">'+anaPct(r)+'</span>','試合の的中率','<span class="mono" style="color:var(--sub)">'+m.tot[0]+'/'+m.tot[1]+'</span>')
+    +anaTile(pracRate!=null?anaPct(pracRate):'—','同期間の練習',pracRate!=null?anaDiffTag(m.tot,[pracRate*1000,1000]).replace('差','試合−練習'):'')
+    +anaTile(m.games.length,'試合数')
+    +'</div>';
+  var pos='';m.posOrder.forEach(function(p){pos+=anaBarRow(p,m.pos[p][0],m.pos[p][1]);});
+  var md='';if(m.modeOrder.length>1)m.modeOrder.forEach(function(k){md+=anaBarRow(k,m.mode[k][0],m.mode[k][1]);});
+  var list='';
+  m.games.slice(0,10).forEach(function(g){
+    var gr=g.hi/g.sh,res='';
+    if(g.r.oppHits!=null){res=g.r.hi>g.r.oppHits?'<span style="color:var(--good);font-weight:700">勝</span>':g.r.hi<g.r.oppHits?'<span style="color:var(--bad);font-weight:700">負</span>':'<span style="color:var(--sub)">同中</span>';}
+    list+='<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-top:1px solid var(--ln)">'
+      +'<div style="flex:1;min-width:0"><div style="font-size:12.5px">'+selfDateS(g.r.date)+' '+esc(bunModeLabel(g.r.mode))+(g.r.opp?'／'+esc(g.r.opp):'')+' '+res+'</div>'
+      +'<div style="font-size:10.5px;color:var(--sub)">'+esc(g.pos.join('・'))+'</div></div>'
+      +'<span style="font-weight:700;color:'+rc(gr)+';font-size:13px">'+anaPct(gr)+'</span>'
+      +'<span class="mono" style="width:40px;text-align:right;font-size:11px;color:var(--sub)">'+g.hi+'/'+g.sh+'</span></div>';
+  });
+  return anaSec('試合成績','リーグ戦・新人戦で自分が引いた射のみ（競射は除く）',
+    head
+    +'<div style="font-size:11.5px;font-weight:700;color:var(--sub);margin:4px 0 2px">射位別</div>'+pos
+    +(md?'<div style="font-size:11.5px;font-weight:700;color:var(--sub);margin:10px 0 2px">試合の種類別</div>'+md:'')
+    +'<div style="font-size:11.5px;font-weight:700;color:var(--sub);margin:10px 0 2px">最近の試合'+(m.games.length>10?'（直近10試合）':'')+'</div>'+list);
+}
+var ANA_PERIODS=[['1m','1か月'],['3m','3か月'],['fy','今年度'],['all','全期間']];
+function personAnalysisView(name){
+  if(ANA_PERIODS.every(function(p){return p[0]!==anaPeriod;}))anaPeriod='3m';
+  var rg=anaRange(anaPeriod);
+  var chips='<div class="mchips">'+ANA_PERIODS.map(function(p){
+    return '<button class="mchip'+(anaPeriod===p[0]?' on':'')+'" data-ana-period="'+p[0]+'">'+p[1]+'</button>';
+  }).join('')+'</div>';
+  var recs=anaRecs(name,rg.from,rg.to);
+  var cur=anaSum(recs);
+  var d=anaShotDeep(recs);
+  // サマリ（前の期間との差つき）
+  var diff='';
+  if(rg.prevFrom){
+    var prev=anaSum(anaRecs(name,rg.prevFrom,rg.prevTo));
+    if(prev.sh&&cur.sh){
+      var pt=(cur.rate-prev.rate)*100;
+      diff='<span style="color:'+(pt>0.05?'var(--good)':pt<-0.05?'var(--bad)':'var(--sub)')+';font-weight:700">'+(pt>0.05?'▲':pt<-0.05?'▼':'→')+Math.abs(pt).toFixed(1)+'pt</span>';
+    }
+  }
+  var summary='<div style="display:flex;gap:6px;margin-bottom:4px">'
+    +anaTile(cur.sh?'<span style="color:'+rc(cur.rate)+'">'+anaPct(cur.rate)+'</span>':'—','的中率',diff)
+    +anaTile(cur.sh,'射数')
+    +anaTile(d.dist[4],'皆中（立）','','var(--acc)')
+    +anaTile(d.maxStreak,'最長連中','','var(--info)')
+    +'</div>'
+    +(diff?'<div style="font-size:10.5px;color:var(--faint);margin-bottom:4px">▲▼は'+rg.prevLabel+'との比較</div>':'');
+  if(!cur.sh){
+    return chips+'<div class="emp" style="padding:20px 0;font-size:12.5px">この期間の正規練の記録がありません。</div>'+anaMatchHTML(name,rg,null);
+  }
+  var gran=anaGran==='month'?'month':'week';
+  var granBtns='<div style="display:flex;gap:6px;margin-bottom:8px">'
+    +[['week','週ごと'],['month','月ごと']].map(function(g){
+      return '<button class="mchip'+(gran===g[0]?' on':'')+'" style="padding:4px 10px;font-size:11.5px" data-ana-gran="'+g[0]+'">'+g[1]+'</button>';
+    }).join('')+'</div>';
+  var out=chips+summary
+    +anaSec('的中率の推移','',granBtns+anaTrendChart(name,rg,gran));
+  if(!d.recs){
+    out+=anaSec('射の傾向','','<div class="emp" style="padding:8px 0;font-size:12px">この期間には1射ごとの内訳がある記録がありません。<br>分附で入力した記録から自動で分析されます。</div>');
+  }else{
+    // 立ちの的中数分布
+    out+=anaSec('1立（4射）の的中数','何中の立ちがどれくらいあるか',anaDistHTML(d.dist));
+    // 位置・甲乙
+    var posRows='';
+    ['1本目','2本目','3本目','4本目'].forEach(function(l,i){posRows+=anaBarRow(l,d.pos[i][0],d.pos[i][1]);});
+    out+=anaSec('立ち内の位置別','4射のうち何本目か／甲矢（1・3本目）と乙矢（2・4本目）',
+      posRows
+      +'<div style="border-top:1px solid var(--ln);margin:8px 0 2px"></div>'
+      +anaBarRow('甲矢',d.haya[0],d.haya[1])+anaBarRow('乙矢',d.oto[0],d.oto[1])
+      +'<div style="text-align:right">'+anaDiffTag(d.haya,d.oto).replace('差','甲矢−乙矢')+'</div>');
+    // 前の矢の結果
+    out+=anaSec('前の矢の結果と次の矢','中った直後・外れた直後の的中率（立ちをまたいでも連続として数える）',
+      anaBarRow('中りの後',d.afterHit[0],d.afterHit[1])+anaBarRow('外れの後',d.afterMiss[0],d.afterMiss[1])
+      +'<div style="text-align:right">'+anaDiffTag(d.afterHit,d.afterMiss).replace('差','中り後−外れ後')+'</div>'
+      +'<div style="font-size:11px;color:var(--sub);margin-top:6px">最長連中 <b style="color:var(--ink)">'+d.maxStreak+'</b> 本　／　最長連続外し <b style="color:var(--ink)">'+d.maxMiss+'</b> 本</div>');
+    // 立ち順・前半後半
+    var tr='';
+    for(var t=0;t<5;t++){if(d.tachi[t][1])tr+=anaBarRow((t+1)+'立目',d.tachi[t][0],d.tachi[t][1]);}
+    if(d.n20)tr+='<div style="border-top:1px solid var(--ln);margin:8px 0 2px"></div>'
+      +anaBarRow('前半10射',d.front[0],d.front[1])+anaBarRow('後半10射',d.back[0],d.back[1])
+      +'<div style="text-align:right">'+anaDiffTag(d.back,d.front).replace('差','後半−前半')+'</div>'
+      +'<div style="font-size:10.5px;color:var(--faint)">前半・後半は20射引いた日（'+d.n20+'回）のみ</div>';
+    out+=anaSec('立ち順別','1立目〜5立目での的中率（集中力・体力の推移）',tr);
+    out+='<div style="font-size:10.5px;color:var(--faint);margin-top:6px">射の傾向は1射ごとの内訳がある記録（'+d.recs+'件）から集計しています。</div>';
+  }
+  out+=anaMatchHTML(name,rg,cur.rate);
+  return out;
 }
 /* 成績表タブ内：他部員も見られる個人ページ（閲覧専用） */
 function tIndivDetail(){
