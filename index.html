@@ -244,7 +244,7 @@ button.tap-bounce{animation:tapBounce .16s ease-out}
    ・マイナー : 機能の追加・仕様の変更（パッチは0に戻す）
    ・パッチ : バグ修正・見た目の微調整・名称変更など
    履歴: v1 build1(6/8 端末内版) / v2 build53(6/13 Firebase共有) / v3 build117(7/2 日付ベース記録) / v4 build170(7/15 4タブ構成) */
-var APP_VERSION='4.28.1',APP_BUILD=249;
+var APP_VERSION='4.29.0',APP_BUILD=250;
 (function(){var el=document.getElementById('app-ver');if(el)el.textContent='v'+APP_VERSION+' (build '+APP_BUILD+')';})();
 var SEED_E=[];
 var SEED_M=[];
@@ -698,7 +698,7 @@ var pinChangedMsg='';
 var pinPendingType=null,pinPendingVal='';
 var wipeStep=0;
 var seedStep=0;   // 名簿順に振り直す（0=通常 / 1=確認中）
-var P=[],KP='kyudo_p1',penaltyView='list',penaltyMb='';
+var P=[],KP='kyudo_p1',penaltyView='list',penaltyMb='',penZeroOpen=false;
 var penForm={kind:'add',ptype:0,wtype:0,mb:'',date:'',pts:0,note:'',heavy:false};
 var Jobs=[],KJ='kyudo_jobs_v1';
 var penSubTab='penalty'; // 'penalty' or 'jobs'
@@ -1684,6 +1684,7 @@ var CLICK_ATTR=[
     }
     anaPeriod=p;paint();
   }],
+  ['data-pen-zero',function(){penZeroOpen=!penZeroOpen;paint();}],
   ['data-ana-gran',function(el){anaGran=el.getAttribute('data-ana-gran');paint();}],
   ['data-ana-mgrp',function(el){anaMatchGrp=parseInt(el.getAttribute('data-ana-mgrp'),10);paint();}],
   ['data-off-mode',function(el){indivOffMode=el.getAttribute('data-off-mode');paint();}],
@@ -2211,7 +2212,6 @@ function tBun(){
           ?'立ち順は前週の的中率で決定'
           :'種別を選択してください')
       +'</div>'
-      +(ready?'':'<div style="margin-top:8px;font-size:12px;color:var(--sub)">日付を選択してください</div>')
       +'<button id="btn-bun-next-att" class="btn prim" style="width:100%;margin-top:12px;padding:12px'+(ready?'':';opacity:0.45')+'"'+(ready?'':' disabled')+'>'+(isLeagueMode(bunMode)?'次へ：試合の詳細 →':'次へ：出席者を選択 →')+'</button>'
       +'</div>';
   }
@@ -2958,16 +2958,32 @@ function tPenalty(){
   var members=membersSorted();
   var sl=members.map(function(n){return{name:n,s:penStats(n)};});
   sl.sort(function(a,b){return b.s.net-a.s.net;});
-  var list='';
-  sl.forEach(function(item){
+  function penRow(item){
     var col=item.s.net>=10?'var(--bad)':item.s.net>=5?'var(--warn)':item.s.net>0?'var(--ink)':'var(--faint)';
-    list+='<div class="li" data-pen-mb="'+esc(item.name)+'" style="cursor:pointer">'
+    return '<div class="li" data-pen-mb="'+esc(item.name)+'" style="cursor:pointer">'
       +'<div><span class="nm">'+esc(item.name)+'</span>'+yb(item.name)
         +'<span class="me">累積+'+item.s.add+'点 / 消化−'+item.s.red+'点</span></div>'
       +'<div style="font-size:22px;font-weight:800;color:'+col+'">'+item.s.net+'<span style="font-size:12px">点</span></div>'
       +'</div>';
-  });
-  return subNav+addForm+'<div class="card" style="padding:0">'
+  }
+  // マイページでログイン中の部員は、自分の罰則を一番上に固定
+  var mine='';
+  var meItem=myMb?sl.filter(function(it){return it.name===myMb;})[0]:null;
+  if(meItem){
+    mine='<div class="card mb10" style="padding:0">'
+      +'<div style="padding:12px 16px 6px;font-size:12px;font-weight:700;color:var(--sub)">自分の罰則</div>'
+      +penRow(meItem)+'</div>';
+  }
+  // 残り0点の部員は折りたたむ
+  var pos=sl.filter(function(it){return it.s.net>0;}),zero=sl.filter(function(it){return it.s.net<=0;});
+  var list=pos.map(penRow).join('');
+  if(!pos.length)list='<div class="emp" style="padding:12px 16px">残りポイントのある部員はいません</div>';
+  if(zero.length){
+    list+='<button data-pen-zero="1" style="width:100%;display:flex;justify-content:space-between;align-items:center;padding:12px 16px;border:none;border-top:1px solid var(--ln);background:transparent;font-family:inherit;font-size:12.5px;color:var(--sub);cursor:pointer">'
+      +'<span>残り0点の部員（'+zero.length+'名）</span><span>'+(penZeroOpen?'閉じる ▲':'表示 ▼')+'</span></button>'
+      +(penZeroOpen?zero.map(penRow).join(''):'');
+  }
+  return subNav+addForm+mine+'<div class="card" style="padding:0">'
     +'<div style="padding:12px 16px 6px;font-size:12px;font-weight:700;color:var(--sub)">残ポイント順</div>'
     +list+'</div>';
 }
@@ -3609,13 +3625,13 @@ function tLeague(){
 function tTb(){
   if(tableView==='indiv')return tIndivDetail();
   var scopeBar='<div class="tb">'
-    +'<button id="btn-tb-prac" class="t'+(tbScope==='prac'?' on':'')+'"><span class="t-lb">練習</span></button>'
+    +'<button id="btn-tb-prac" class="t'+(tbScope==='prac'?' on':'')+'"><span class="t-lb">正規練</span></button>'
     +'<button id="btn-tb-match" class="t'+(tbScope==='match'?' on':'')+'"><span class="t-lb">試合</span></button>'
     +'</div>';
   if(tbScope==='match')return scopeBar+tLeague();
-  var main=scopeBar+'<div class="tb">'
-    +'<button id="btn-mo" class="t'+(tMode==='monthly'?' on':'')+'"><span class="t-lb">月別</span></button>'
-    +'<button id="btn-se" class="t'+(tMode==='session'?' on':'')+'"><span class="t-lb">週別</span></button>'
+  var main=scopeBar+'<div class="mchips">'
+    +'<button id="btn-mo" class="mchip'+(tMode==='monthly'?' on':'')+'">月別</button>'
+    +'<button id="btn-se" class="mchip'+(tMode==='session'?' on':'')+'">週別</button>'
     +'</div>'+(tMode==='monthly'?mMonthly():mSession());
   var hist='<div style="margin-top:20px;border-top:1px solid var(--ln);padding-top:14px">'
     +'<button id="btn-hist-toggle" style="width:100%;display:flex;align-items:center;justify-content:space-between;padding:11px 14px;border:1px solid var(--ln2);border-radius:10px;background:var(--sf);cursor:pointer;font-family:inherit">'
@@ -3955,9 +3971,6 @@ function personBadge(name,achObj,label,key){
 /* プロフィールカード（公式通算・最高月・実績バッジ） */
 function personProfileCard(name){
   var mt=Meta[name]||{};
-  var all=indivAllStats(name);
-  var monthly=indivMonthly(name);
-  var best=monthly.slice().sort(function(a,b){return b.rate-a.rate;})[0];
   var ach=getAchievements(name);
   var achRow='<div style="display:flex;flex-wrap:wrap;align-items:flex-end;gap:8px;margin-top:10px;padding-top:10px;border-top:1px solid var(--ln)">'
     +personBadge(name,ach.firstHit,    '初的中',     'firstHit')
@@ -3975,15 +3988,7 @@ function personProfileCard(name){
         +(mt.year||mt.gender?'<div style="font-size:12px;color:var(--sub);margin-top:2px">'
           +[mt.year?mt.year+'年生':'',mt.gender||''].filter(Boolean).join('・')+'</div>':'')
       +'</div>'
-      +'<div style="text-align:right">'
-        +'<div style="font-size:28px;font-weight:800;color:'+rc(all.rate)+'">'+(all.sh?(all.rate*100).toFixed(1)+'%':'—')+'</div>'
-        +'<div style="font-size:12px;color:var(--sub)">'+(all.sh?all.hi+'/'+all.sh+'本 通算':'記録なし')+'</div>'
-      +'</div>'
     +'</div>'
-    +(best?'<div style="margin-top:8px;font-size:12px;color:var(--sub)">'
-      +'最高月: <span style="font-weight:700;color:var(--ink)">'+fm(best.month)+'</span>'
-      +' <span style="color:'+rc(best.rate)+';font-weight:700">'+(best.rate*100).toFixed(1)+'%</span>'
-      +' ('+best.hi+'/'+best.sh+'本)</div>':'')
     +achRow+'</div>';
 }
 /* 記録内訳の並び替えキー（新しい順） */
