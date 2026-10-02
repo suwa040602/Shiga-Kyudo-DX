@@ -244,7 +244,7 @@ button.tap-bounce{animation:tapBounce .16s ease-out}
    ・マイナー : 機能の追加・仕様の変更（パッチは0に戻す）
    ・パッチ : バグ修正・見た目の微調整・名称変更など
    履歴: v1 build1(6/8 端末内版) / v2 build53(6/13 Firebase共有) / v3 build117(7/2 日付ベース記録) / v4 build170(7/15 4タブ構成) */
-var APP_VERSION='4.27.0',APP_BUILD=247;
+var APP_VERSION='4.28.0',APP_BUILD=248;
 (function(){var el=document.getElementById('app-ver');if(el)el.textContent='v'+APP_VERSION+' (build '+APP_BUILD+')';})();
 var SEED_E=[];
 var SEED_M=[];
@@ -739,7 +739,7 @@ var mergeMode=false,mergeSel=[],mergeConfirm=false,mergeForm={d:'',sess:0,sh:0,h
 var SP=[],KSP='kyudo_sp_v1';
 var Pins={},KPINS='kyudo_pins_v1';
 var myMb='',KME='kyudo_me_v1';
-var anaPeriod='3m',anaGran='week',anaFrom='',anaTo='';
+var anaPeriod='3m',anaGran='week',anaFrom='',anaTo='',anaMatchGrp=null,indivOffMode='month';
 var selfSub='official',selfPracSub='input',selfOffSub='official',selfForm={date:'',sh:'20',hi:''},selfMarks=[];
 var selfMoKey=null;
 var selfLoginName='',selfSetMode=false;
@@ -1685,6 +1685,8 @@ var CLICK_ATTR=[
     anaPeriod=p;paint();
   }],
   ['data-ana-gran',function(el){anaGran=el.getAttribute('data-ana-gran');paint();}],
+  ['data-ana-mgrp',function(el){anaMatchGrp=parseInt(el.getAttribute('data-ana-mgrp'),10);paint();}],
+  ['data-off-mode',function(el){indivOffMode=el.getAttribute('data-off-mode');paint();}],
   ['data-self-del',function(el){delSelf(parseInt(el.getAttribute('data-self-del'),10));}],
   ['data-self-idx',function(el){toggleSelfShot(parseInt(el.getAttribute('data-self-idx'),10));}],
   ['data-pen-sub',function(el){penSubTab=el.getAttribute('data-pen-sub');penaltyView='list';jobView='list';paint();}],
@@ -4084,10 +4086,12 @@ function personOfficialView(name){
         +'</div>'
       :'<div class="emp" style="padding:20px 0">週別データがありません</div>';
   }
-  return '<p style="font-size:12px;font-weight:700;color:var(--sub);margin:0 0 6px">月別成績</p>'
-    +moContent
-    +'<p style="font-size:12px;font-weight:700;color:var(--sub);margin:10px 0 6px">週別詳細</p>'
-    +wkContent;
+  var om=indivOffMode==='week'?'week':'month';
+  return '<div class="tb" style="margin-bottom:10px">'
+      +'<button class="t'+(om==='month'?' on':'')+'" data-off-mode="month"><span class="t-lb">月別</span></button>'
+      +'<button class="t'+(om==='week'?' on':'')+'" data-off-mode="week"><span class="t-lb">週別</span></button>'
+    +'</div>'
+    +(om==='week'?wkContent:moContent);
 }
 /* ======= 射癖分析（内訳seqを持つ記録のみ集計） ======= */
 function indivShotAnalysis(name){
@@ -4359,9 +4363,7 @@ function anaGroupsHTML(groups){
   });
   return out+'</div>';
 }
-function anaMatchHTML(name,rg,pracRate,grp){
-  var m=anaMatch(name,rg.from,rg.to,grp.modes);
-  if(!m.games.length)return '';
+function anaMatchHTML(m,pracRate){
   var r=m.tot[0]/m.tot[1];
   var head='<div style="display:flex;gap:8px;margin-bottom:10px">'
     +anaTile('<span style="color:'+rc(r)+'">'+anaPct(r)+'</span>','試合の的中率','<span class="mono" style="color:var(--sub)">'+m.tot[0]+'/'+m.tot[1]+'</span>')
@@ -4384,17 +4386,23 @@ function anaMatchHTML(name,rg,pracRate,grp){
       +anaGroupsHTML(g.groups)
     +'</div>';
   });
-  return anaSec(grp.label,'自分が引いた射のみ（競射は除く）',
-    head
+  return head
     +'<div style="font-size:11.5px;font-weight:700;color:var(--sub);margin:4px 0 2px">射位別</div>'+pos
     +(md?'<div style="font-size:11.5px;font-weight:700;color:var(--sub);margin:10px 0 2px">試合の種類別</div>'+md:'')
-    +'<div style="font-size:11.5px;font-weight:700;color:var(--sub);margin:10px 0 2px">試合ごとの内訳（新しい順）</div>'+list);
+    +'<div style="font-size:11.5px;font-weight:700;color:var(--sub);margin:10px 0 2px">試合ごとの内訳（新しい順）</div>'+list;
 }
 function anaMatchAllHTML(name,rg,pracRate){
-  var out='';
-  ANA_MATCH_GROUPS.forEach(function(grp){out+=anaMatchHTML(name,rg,pracRate,grp);});
-  if(!out)out=anaSec('試合成績','リーグ戦・新人戦で自分が引いた射のみ（競射は除く）','<div class="emp" style="padding:8px 0;font-size:12px">この期間の試合記録はありません</div>');
-  return out;
+  var ms=ANA_MATCH_GROUPS.map(function(grp){return anaMatch(name,rg.from,rg.to,grp.modes);});
+  // 未選択なら記録のある方を初期表示にする
+  var gi=anaMatchGrp;
+  if(gi==null||!ms[gi]){gi=0;for(var i=0;i<ms.length;i++){if(ms[i].games.length){gi=i;break;}}}
+  var tabs='<div class="tb" style="margin-bottom:10px">'+ANA_MATCH_GROUPS.map(function(grp,i){
+    return '<button class="t'+(gi===i?' on':'')+'" data-ana-mgrp="'+i+'"><span class="t-lb">'+grp.label+'</span></button>';
+  }).join('')+'</div>';
+  var m=ms[gi];
+  var body=m.games.length?anaMatchHTML(m,pracRate)
+    :'<div class="emp" style="padding:8px 0;font-size:12px">この期間の'+ANA_MATCH_GROUPS[gi].label+'の記録はありません</div>';
+  return anaSec('試合成績','自分が引いた射のみ（競射は除く）',tabs+body);
 }
 var ANA_PERIODS=[['1m','1か月'],['3m','3か月'],['fy','今年度'],['all','全期間'],['custom','期間指定']];
 function personAnalysisView(name){
@@ -4432,9 +4440,9 @@ function personAnalysisView(name){
     return chips+'<div class="emp" style="padding:20px 0;font-size:12.5px">この期間の正規練の記録がありません。</div>'+anaMatchAllHTML(name,rg,null);
   }
   var gran=anaGran==='month'?'month':'week';
-  var granBtns='<div style="display:flex;gap:6px;margin-bottom:8px">'
-    +[['week','週ごと'],['month','月ごと']].map(function(g){
-      return '<button class="mchip'+(gran===g[0]?' on':'')+'" style="padding:4px 10px;font-size:11.5px" data-ana-gran="'+g[0]+'">'+g[1]+'</button>';
+  var granBtns='<div class="tb" style="margin-bottom:10px">'
+    +[['week','週別'],['month','月別']].map(function(g){
+      return '<button class="t'+(gran===g[0]?' on':'')+'" data-ana-gran="'+g[0]+'"><span class="t-lb">'+g[1]+'</span></button>';
     }).join('')+'</div>';
   var out=chips+summary
     +anaSec('的中率の推移','',granBtns+anaTrendChart(name,rg,gran));
@@ -4443,10 +4451,10 @@ function personAnalysisView(name){
   }else{
     // 的中数の分布
     out+=anaSec('的中数の分布','1立（4射）で何本中ったか、その立ちがどれくらいあるか',anaDistHTML(d.dist));
-    // 矢順別
+    // 矢別
     var posRows='';
     ['1本目','2本目','3本目','4本目'].forEach(function(l,i){posRows+=anaBarRow(l,d.pos[i][0],d.pos[i][1]);});
-    out+=anaSec('矢順別','立ちの中で何本目の矢か',posRows);
+    out+=anaSec('矢別','立ちの中で何本目の矢か',posRows);
     // 前の矢の結果
     out+=anaSec('前の矢の結果と次の矢','中った直後・外れた直後の的中率（立ちをまたいでも連続として数える）',
       anaBarRow('中りの後',d.afterHit[0],d.afterHit[1])+anaBarRow('外れの後',d.afterMiss[0],d.afterMiss[1])
