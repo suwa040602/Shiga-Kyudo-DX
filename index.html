@@ -224,9 +224,7 @@ button.tap-bounce{animation:tapBounce .16s ease-out}
 .tb.seg{background:#ebe9e2;border:none;padding:3px;border-radius:10px;gap:2px}
 .tb.seg .t{border-left:none;border-radius:8px;padding:8px 3px;color:var(--sub)}
 .tb.seg .t.on{background:#fff;color:var(--ink);font-weight:700;box-shadow:0 1px 3px rgba(0,0,0,.14)}
-.tb.seg .t:not(:disabled):active{background:rgba(255,255,255,.5)}
-.tb.seg .t.on:not(:disabled):active{background:#fff;filter:none}
-.tb.seg .t.tap-bounce,.tb.seg .t.on.tap-bounce{animation:none}
+.tb.seg .t.on:not(:disabled):active{background:#fff;filter:brightness(.85)}
 </style>
 </head>
 <body>
@@ -253,7 +251,7 @@ button.tap-bounce{animation:tapBounce .16s ease-out}
    ・マイナー : 機能の追加・仕様の変更（パッチは0に戻す）
    ・パッチ : バグ修正・見た目の微調整・名称変更など
    履歴: v1 build1(6/8 端末内版) / v2 build53(6/13 Firebase共有) / v3 build117(7/2 日付ベース記録) / v4 build170(7/15 4タブ構成) */
-var APP_VERSION='4.30.0',APP_BUILD=251;
+var APP_VERSION='4.30.1',APP_BUILD=252;
 (function(){var el=document.getElementById('app-ver');if(el)el.textContent='v'+APP_VERSION+' (build '+APP_BUILD+')';})();
 var SEED_E=[];
 var SEED_M=[];
@@ -4077,24 +4075,31 @@ function personOfficialView(name){
   }
   // 週別ビュー
   var wkData=weekly.slice(0,indivWkLimit);
+  function wkTrend(i){
+    if(i>=weekly.length-1)return '';
+    var d=weekly[i].rate-weekly[i+1].rate;
+    if(Math.abs(d)<0.001)return '<span style="color:var(--faint)">→</span>';
+    return d>0?'<span style="color:var(--good)">▲</span>':'<span style="color:var(--bad)">▼</span>';
+  }
   var wkContent;
   {
     var wkRows='';
-    wkData.forEach(function(w){
+    wkData.forEach(function(w,i){
       var wkOpen=indivWkExpand===w.key;
       wkRows+='<tr>'
         +'<td class="tl" style="font-size:12px">'+fm(w.month)+' 第'+w.sess+'週</td>'
         +'<td style="font-weight:700;color:'+rc(w.rate)+'">'+(w.rate*100).toFixed(1)+'%</td>'
         +'<td class="mono" style="color:'+(wkOpen?'var(--acc)':'var(--sub)')+';font-size:12px;cursor:pointer;text-decoration:underline;text-decoration-style:dotted" data-wk-expand="'+esc(w.key)+'">'+w.hi+'/'+w.sh+'</td>'
+        +'<td style="font-size:11px">'+wkTrend(i)+'</td>'
         +'</tr>';
       if(wkOpen){
-        wkRows+=recBreakdownHTML(S.filter(function(e){return e.mb===name&&e.d===w.month&&recWeek(e)===w.sess;}).slice().sort(recSortDesc),3);
+        wkRows+=recBreakdownHTML(S.filter(function(e){return e.mb===name&&e.d===w.month&&recWeek(e)===w.sess;}).slice().sort(recSortDesc),4);
       }
     });
     wkContent=weekly.length
       ?'<div class="tc"><table>'
-        +'<colgroup><col><col width="66"><col width="76"></colgroup>'
-        +'<thead><tr><th class="tl">練習週</th><th>的中率</th><th>的中/射数</th></tr></thead>'
+        +'<colgroup><col><col width="62"><col width="72"><col width="28"></colgroup>'
+        +'<thead><tr><th class="tl">週</th><th>的中率</th><th>的中/射数</th><th></th></tr></thead>'
         +'<tbody>'+wkRows+'</tbody></table>'
         +(weekly.length>indivWkLimit?'<button id="btn-indiv-wk-more" class="btn bh" style="width:100%;margin-top:0;border:none;border-top:1px solid var(--ln);border-radius:0;padding:10px;font-size:12px">さらに表示</button>':'')
         +'</div>'
