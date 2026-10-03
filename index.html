@@ -255,7 +255,7 @@ button.tap-bounce{animation:tapBounce .16s ease-out}
    ・マイナー : 機能の追加・仕様の変更（パッチは0に戻す）
    ・パッチ : バグ修正・見た目の微調整・名称変更など
    履歴: v1 build1(6/8 端末内版) / v2 build53(6/13 Firebase共有) / v3 build117(7/2 日付ベース記録) / v4 build170(7/15 4タブ構成) */
-var APP_VERSION='4.31.0',APP_BUILD=253;
+var APP_VERSION='4.32.0',APP_BUILD=254;
 (function(){var el=document.getElementById('app-ver');if(el)el.textContent='v'+APP_VERSION+' (build '+APP_BUILD+')';})();
 var SEED_E=[];
 var SEED_M=[];
@@ -1108,7 +1108,7 @@ function getMo(){
   return out.sort().reverse();
 }
 function fm(m){var p=m.split('-');return p[0]+'年'+parseInt(p[1],10)+'月';}
-function fsk(k){var p=k.split('|');return fm(p[0])+' 第'+p[1]+'週';}
+function fsk(k){return wkLbl(k);}
 // iOSのtype="month"未サポート対応：年月を2つのselectで表示
 function moSelect(id,val){
   var now=new Date();
@@ -1138,13 +1138,8 @@ function moSelectVal(id){
 }
 function getSessKeys(){
   var seen={};
-  S.forEach(function(e){var w=recWeek(e);if(w>0)seen[e.d+'|'+w]=1;});
+  S.forEach(function(e){var k=recWk(e);if(k)seen[k]=1;});
   return Object.keys(seen).sort(function(a,b){return b.localeCompare(a);});
-}
-function nextSess(d){
-  var ex=S.filter(function(e){return e.d===d&&e.sess>0;});
-  if(!ex.length)return 1;
-  return Math.max.apply(null,ex.map(function(e){return e.sess;}))+1;
 }
 function yb(name){
   var m=Meta[name]||{};var parts=[];
@@ -1225,9 +1220,8 @@ function toggleMo(m){
 }
 function setMoAll(){mo='all';rankExpandName='';paint();}
 function getSessStats(key){
-  var p=key.split('|');var d=p[0];var si=parseInt(p[1],10);
   var active=activeMbs();var mp={};
-  S.filter(function(e){return e.d===d&&recWeek(e)===si&&(!active||active.has(e.mb));}).forEach(function(e){
+  S.filter(function(e){return recWk(e)===key&&(!active||active.has(e.mb));}).forEach(function(e){
     if(!mp[e.mb])mp[e.mb]={name:e.mb,sh:0,hi:0};
     mp[e.mb].sh+=e.sh;mp[e.mb].hi+=e.hi;
   });
@@ -1235,7 +1229,7 @@ function getSessStats(key){
   return assignRanks(sorted);
 }
 /* 週別：複数週を合算 */
-function sessMatch(e,keys){return keys.some(function(k){var p=k.split('|');return e.d===p[0]&&recWeek(e)===parseInt(p[1],10);});}
+function sessMatch(e,keys){return keys.indexOf(recWk(e))>=0;}
 function getSessStatsMulti(keys){
   keys=keys||[];
   var active=activeMbs();var mp={};
@@ -1251,11 +1245,9 @@ function sessLabel(keys){
   if(!keys.length)return '週未選択';
   if(keys.length===1)return fsk(keys[0]);
   var sorted=keys.slice().sort();
-  var months={};sorted.forEach(function(k){months[k.split('|')[0]]=1;});
-  if(Object.keys(months).length===1){
-    var d=sorted[0].split('|')[0];
-    return fm(d)+' 第'+sorted.map(function(k){return k.split('|')[1];}).join('・')+'週';
-  }
+  // 連続した週なら「9/28〜10/18（3週）」とまとめて書く
+  var cont=sorted.every(function(k,i){return i===0||wkAdd(sorted[i-1],7)===k;});
+  if(cont){var a=wkLbl(sorted[0]),b=wkLbl(sorted[sorted.length-1]);return a.split('〜')[0]+'〜'+b.split('〜')[1]+'（'+keys.length+'週）';}
   return keys.length+'週合算';
 }
 function setMeta(name,key,val){
@@ -1263,7 +1255,7 @@ function setMeta(name,key,val){
   Meta[name][key]=(['year','num'].indexOf(key)>=0&&val)?parseInt(val,10):(val||null);
   svM();paint();
 }
-function attKey(){return bunD+'|'+bunSess;}
+function attKey(){return wkOf(bunDate);}
 function presentMembers(){
   var key=attKey();
   var sorted=membersSorted();
@@ -1447,8 +1439,7 @@ var CLICK_ID={
   },
   'btn-bun-next-att':function(){
     if(!bunDate||!bunMode)return;
-    var wk=calWeekOfMonth(bunDate);if(!wk)return;
-    bunD=bunDate.slice(0,7);bunSess=wk;
+    bunD=bunDate.slice(0,7);bunSess=wkOf(bunDate);
     if(isLeagueMode(bunMode)){
       // リーグ戦は人数・立の構成が決まっているので、出席者選択と立の設定は飛ばす
       bunTate=(LG_TATE[bunMode]||[]).length;
@@ -1604,14 +1595,14 @@ var INPUT_ID={
   'job-note':function(el){jobForm.note=el.value;},
   'pen-cpts':function(el){penForm.pts=+el.value;},
   'pen-note':function(el){penForm.note=el.value;},
-  'ef-date':function(el){var w=document.getElementById('ef-wk');if(w)w.textContent=el.value?fm(el.value.slice(0,7))+' 第'+calWeekOfMonth(el.value)+'週として記録':'';},
+  'ef-date':function(){},
   'lg-opp':function(el){
     bunOpp=el.value;
     // paint()すると入力欄が作り直されてキーボードが閉じるので、ボタンの状態だけ切り替える
     var b=document.getElementById('btn-lg-next-lineup');
     if(b){b.disabled=!bunOpp;b.style.opacity=bunOpp?'':'0.45';}
   },
-  'lg-date':function(el){if(!el.value)return;bunDate=el.value;bunD=bunDate.slice(0,7);bunSess=calWeekOfMonth(bunDate)||bunSess;},
+  'lg-date':function(el){if(!el.value)return;bunDate=el.value;bunD=bunDate.slice(0,7);bunSess=wkOf(bunDate);},
   'lg-opphits':function(el){
     bunOppHits=el.value;
     // ここでpaint()すると入力欄が作り直されてキーボードが閉じるので、表示だけ差し替える
@@ -1625,7 +1616,7 @@ var INPUT_ID={
       :tot.hi<n?'<span style="color:var(--bad,#c0392b);font-weight:800">負け</span>'
       :'<span style="color:var(--warn,#b7800a);font-weight:800">同中（競射）</span>';
   },
-  'mf-date':function(el){var w=document.getElementById('mf-wk');if(w)w.textContent=el.value?fm(el.value.slice(0,7))+' 第'+calWeekOfMonth(el.value)+'週として記録':'';}
+  'mf-date':function(){}
 };
 var KEY_ID={
   'inp-nm':function(el,ev){if(ev.key==='Enter')doAdd();},
@@ -1674,7 +1665,7 @@ var CLICK_ATTR=[
   ['data-rank-expand',function(el){var name=el.getAttribute('data-rank-expand');rankExpandName=(rankExpandName===name)?'':name;paint();}],
   ['data-mo-expand',function(el){var k=el.getAttribute('data-mo-expand');indivMoExpand=(indivMoExpand===k)?'':k;paint();}],
   ['data-wk-expand',function(el){var k=el.getAttribute('data-wk-expand');indivWkExpand=(indivWkExpand===k)?'':k;paint();}],
-  ['data-edit-id',function(el){if(!canEditHistory())return;var id=parseInt(el.getAttribute('data-edit-id'),10);var rec=S.find(function(x){return x.id===id;})||{};editId=id;editForm=rec.date?{date:rec.date,sh:rec.sh,hi:rec.hi}:{d:rec.d,sess:rec.sess,sh:rec.sh,hi:rec.hi};pDel=null;paint();}],
+  ['data-edit-id',function(el){if(!canEditHistory())return;var id=parseInt(el.getAttribute('data-edit-id'),10);var rec=S.find(function(x){return x.id===id;})||{};editId=id;editForm={date:rec.date||'',sh:rec.sh,hi:rec.hi};pDel=null;paint();}],
   ['data-edit-cancel',function(){editId=null;paint();}],
   ['data-edit-save',function(el){if(!canEditHistory())return;doEditSave(parseInt(el.getAttribute('data-edit-save'),10));}],
   ['data-merge-toggle',function(){if(!canEditHistory())return;mergeToggle();}],
@@ -1803,44 +1794,6 @@ function memberOpts(sel){
   });
   return out;
 }
-function tIn(){
-  var sv=parseFloat(form.sh)||0,hv=parseFloat(form.hi);
-  var sp=sv>0&&!isNaN(hv)&&hv>=0&&hv<=sv;var r=sp?hv/sv:0;
-  var prev=nextSess(form.d)-1;
-  return '<div class="card mb10">'
-    +'<p style="margin:0 0 3px;font-size:14px;font-weight:700">練習の的中を記録する</p>'
-    +'<p style="margin:0;font-size:11px;color:var(--sub)">同じ月・同じ週に複数回入力すると合計に加算されます</p>'
-    +'<label>対象の月</label>'
-    +moSelect('inp-mo',form.d)
-    +'<label>週 <span class="opt">（今月は第'+(prev>0?prev:0)+'週まで入力済み）</span></label>'
-    +'<input id="inp-sess" type="number" min="1" value="'+form.sess+'" style="width:50%">'
-    +attSection()
-    +'<label>氏名</label>'
-    +'<select id="sel-mb">'+memberOpts(form.mb)+'</select>'
-    +'<div class="g2">'
-      +'<div><label>射数 <span class="opt">（通常20）</span></label>'
-        +'<input id="inp-sh" type="number" min="0" value="'+form.sh+'"></div>'
-      +'<div><label>的中数</label>'
-        +'<input id="inp-hi" type="number" min="0" placeholder="0〜'+(sv||20)+'" value="'+form.hi+'"></div>'
-    +'</div>'
-    +'<div class="pre" id="pre" style="display:'+(sp?'flex':'none')+'">'
-      +'<span style="font-size:13px;color:var(--sub)">今回の的中率</span>'
-      +'<span class="v" id="pv" style="color:'+rc(r)+'">'+(sp?(r*100).toFixed(1)+'%':'')+'</span>'
-    +'</div>'
-    +'<button id="btn-save" class="btn prim">記録する</button>'
-    +'</div>'+recBlock();
-}
-function recBlock(){
-  var rec=S.slice().reverse().slice(0,3);
-  if(!rec.length)return '';
-  var out='<p style="font-size:11px;color:var(--sub);margin-bottom:6px">直近に追加した記録</p>';
-  rec.forEach(function(e){
-    out+='<div class="li"><div><span class="nm">'+esc(e.mb)+'</span>'
-      +'<span class="me">'+fm(e.d)+' '+(e.sess>0?'第'+e.sess+'週':'月計')+'</span></div>'
-      +'<span style="font-weight:700;color:'+rc(e.hi/e.sh)+'">'+e.hi+'/'+e.sh+'本 ('+(e.hi/e.sh*100).toFixed(1)+'%)</span></div>';
-  });
-  return out;
-}
 function lp(){
   var sv=parseFloat(form.sh)||0,hv=parseFloat(form.hi);
   var b=document.getElementById('pre'),v=document.getElementById('pv');if(!b)return;
@@ -1854,18 +1807,6 @@ function selfLpUpdate(){
   if(sv>0&&!isNaN(hv)&&hv>=0&&hv<=sv){var r=hv/sv;b.style.display='flex';v.textContent=(r*100).toFixed(1)+'%';v.style.color=rc(r);}
   else b.style.display='none';
 }
-function doSave(){
-  var mb=form.mb,d=form.d,sess=form.sess,sv=parseFloat(form.sh)||0,hv=parseFloat(form.hi);
-  if(!mb)return fl('氏名を選択してください',true);
-  if(!d)return fl('対象の月を選択してください',true);
-  if(!sess||sess<1)return fl('週番号を入力してください',true);
-  if(!sv||sv<=0)return fl('射数を正しく入力してください',true);
-  if(isNaN(hv)||hv<0||hv>sv)return fl('的中数が正しくありません',true);
-  S.push({id:Date.now(),mb:mb,d:d,sess:parseInt(sess,10),sh:sv,hi:hv});
-  svS();fl(mb+'さん（'+fm(d)+' 第'+sess+'週）に '+hv+'/'+sv+'本 を加算しました');
-  form.mb='';form.sh='20';form.hi='';paint();
-}
-
 /* ======= ATTENDANCE (inline in input tab) ======= */
 function attSection(){
   var key=attKey();
@@ -1917,18 +1858,11 @@ function setAllAtt(present){
   svA();paint();
 }
 /* ======= 分附 ======= */
-/* レコードの新旧を比較するためのキー。月(YYYYMM) → 週 → 日 → id の順で見る。
-   date があるものは recWeek() が実日付から週を出すので、旧形式(sess)とも同じ土俵で比べられる。
-   同じ週に複数レコードがある場合は日付で比べ、日付が無い旧形式は同週内で先（古い扱い）に置く。 */
-function recOrderKey(e){
-  var ym=parseInt(String(e.d||'').replace('-',''),10)||0;
-  var day=e&&e.date?(parseInt(String(e.date).split('-')[2],10)||0):0;
-  return [ym,recWeek(e),day,e.id||0];
-}
+/* レコードの新旧比較：日付 → 同じ日なら登録順（id） */
 function recOrderCmp(a,b){
-  var ka=recOrderKey(a),kb=recOrderKey(b);
-  for(var i=0;i<4;i++){if(ka[i]!==kb[i])return ka[i]-kb[i];}
-  return 0;
+  var da=a.date||'',db=b.date||'';
+  if(da!==db)return da<db?-1:1;
+  return (a.id||0)-(b.id||0);
 }
 function getBunDefaultOrder(){
   return bunMode==='hyakusha'?bunOrderByLatest():bunOrderByPrevWeek();
@@ -1953,22 +1887,15 @@ function bunOrderByLatest(){
 }
 /* 正規練モード（従来どおり）：前週1週間分の合計的中率で並べる。 */
 function bunOrderByPrevWeek(){
-  // 前の週を特定
-  var prevD=bunD, prevSess=bunSess-1;
-  if(prevSess<1){
-    // 前月の最終週を探す
-    var d=new Date(bunD+'-01');
-    d.setMonth(d.getMonth()-1);
-    prevD=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');
-    var ps=S.filter(function(e){return e.d===prevD;});
-    prevSess=ps.length?Math.max.apply(null,ps.map(function(e){return recWeek(e);}).concat([0])):0;
-  }
+  // 前の週を特定：今週の月曜より前で、記録のある一番新しい週
+  var cur=wkOf(bunDate),prevK='';
+  S.forEach(function(e){var k=recWk(e);if(k&&k<cur&&k>prevK)prevK=k;});
   var base=membersSorted().slice();
-  if(prevSess<1)return base; // 前週データなし→デフォルト順
+  if(!prevK)return base; // 前週データなし→デフォルト順
   // 前週の的中率を計算
   var scores={};
   base.forEach(function(name){
-    var entries=S.filter(function(e){return e.d===prevD&&recWeek(e)===prevSess&&e.mb===name;});
+    var entries=S.filter(function(e){return recWk(e)===prevK&&e.mb===name;});
     if(entries.length){
       var sh=entries.reduce(function(a,e){return a+e.sh;},0);
       var hi=entries.reduce(function(a,e){return a+e.hi;},0);
@@ -1992,7 +1919,7 @@ function bunSortByScores(base,scores){
 }
 function getBunMembers(){
   if(isLeagueMode(bunMode))return lgTableSlots(bunMode).map(function(sl){return sl.key;});
-  var key=bunD+'|'+bunSess;
+  var key=attKey();
   var sorted=bunOrder?bunOrder:membersSorted();
   // 出席者に加えて「既に○×が入っている部員」も必ず含める。
   // 出席リストが他端末の同期で入れ替わった時に、入力済みの列が
@@ -2175,8 +2102,7 @@ function tBun(){
   // STEP 1
   if(bunStep==='mo-sess'){
     if(!bunDate)bunDate=todayStr();
-    var wk=calWeekOfMonth(bunDate);
-    var ready=!!bunDate&&wk>0&&!!bunMode;
+    var ready=!!bunDate&&!!bunMode;
     /* 進行中の下書きがある間は新規作成そのものを塞ぐ。
        二重に作られると、先に入力していた分がどこにも残らず消えるため。
        逃げ道の「破棄」は取り返しがつかないので、記録ボタンと同じ
@@ -2186,7 +2112,7 @@ function tBun(){
       var drTime=dr.updatedAt?new Date(dr.updatedAt).toLocaleTimeString('ja-JP',{hour:'2-digit',minute:'2-digit'}):'';
       return '<div class="card mb10" style="background:#fef9e7;border:1.5px solid var(--warn,#e6a817)">'
         +'<div style="font-size:14px;font-weight:800;color:var(--warn,#b7800a);margin-bottom:4px">📋 進行中の分附があります</div>'
-        +'<div style="font-size:12px;color:var(--sub);margin-bottom:12px">'+(dr.date?selfDateF(dr.date):(dr.d?fm(dr.d)+(dr.sess?' 第'+dr.sess+'週':''):''))+(dr.mode&&dr.mode!=='normal'?' — '+esc(bunModeLabel(dr.mode)):'')+(drTime?' — 更新 '+drTime:'')+'</div>'
+        +'<div style="font-size:12px;color:var(--sub);margin-bottom:12px">'+(dr.date?selfDateF(dr.date):'')+(dr.mode&&dr.mode!=='normal'?' — '+esc(bunModeLabel(dr.mode)):'')+(drTime?' — 更新 '+drTime:'')+'</div>'
         +'<button id="btn-draft-resume" class="btn prim" style="width:100%;margin-top:0;padding:16px;font-size:17px;font-weight:800">▶ 続きから入力</button>'
         +'<div style="font-size:11px;color:var(--sub);text-align:center;margin-top:8px">※ 記録が済むまで新しい分附は作成できません</div>'
       +'</div>'
@@ -2658,7 +2584,7 @@ function tBun(){
       +'<button id="btn-bun-back-cfg" class="btn bh" style="padding:6px 10px;font-size:12px">← 戻る</button>'
       +'<p style="margin:0 0 0 10px;font-size:14px;font-weight:700">'+'④ 的中入力'+'</p>'
     +'</div>'
-    +'<p style="font-size:11px;color:var(--sub);margin:0 0 6px">'+(isLeagueMode(bunMode)?lgHeadLine():(bunDate?selfDateF(bunDate):fm(bunD)+(bunSess?' 第'+bunSess+'週':''))+' — '+members.length+'名')+'</p>'
+    +'<p style="font-size:11px;color:var(--sub);margin:0 0 6px">'+(isLeagueMode(bunMode)?lgHeadLine():selfDateF(bunDate)+' — '+members.length+'名')+'</p>'
     +(isLeagueMode(bunMode)?lgEditBanner():modeBar)
     +inputArea
     +'<div style="height:1px;background:var(--ln);margin:22px 0 14px"></div>'
@@ -2689,7 +2615,7 @@ function draftDiscardModal(){
     +'<div style="font-size:17px;font-weight:800;margin-bottom:6px;color:var(--bad)">進行中の分附を破棄しますか？</div>'
     +'<div style="font-size:13px;color:var(--sub);margin-bottom:12px">入力済みの的中はすべて消えます。元に戻せません。</div>'
     +'<div style="text-align:left;background:var(--sec);border-radius:8px;padding:10px 12px;margin-bottom:16px;font-size:12px">'
-      +'<div style="display:flex;justify-content:space-between;padding:2px 0"><span>練習日</span><span>'+(dr.date?selfDateF(dr.date):(dr.d?fm(dr.d)+(dr.sess?' 第'+dr.sess+'週':''):'—'))+'</span></div>'
+      +'<div style="display:flex;justify-content:space-between;padding:2px 0"><span>練習日</span><span>'+(dr.date?selfDateF(dr.date):'—')+'</span></div>'
       +'<div style="display:flex;justify-content:space-between;padding:2px 0"><span>種別</span><span>'+esc(bunModeLabel(dr.mode))+'</span></div>'
       +'<div style="display:flex;justify-content:space-between;padding:2px 0"><span>人数</span><span>'+nm2+'名</span></div>'
       +'<div style="display:flex;justify-content:space-between;padding:2px 0"><span>入力済み</span><span>'+cells+'マス</span></div>'
@@ -2797,7 +2723,7 @@ function lgStartEdit(id){
   resetBunState();
   lgEditId=r.id;
   bunMode=r.mode;bunDate=r.date||'';bunD=r.d||(bunDate?bunDate.slice(0,7):'');
-  bunSess=bunDate?(calWeekOfMonth(bunDate)||0):0;
+  bunSess=bunDate?wkOf(bunDate):'';
   bunOpp=r.opp||'';bunOppHits=(r.oppHits==null?'':''+r.oppHits);
   bunFirst=r.first||'';bunVenue=r.venue||'';bunKind=r.kind||'';bunFinal=!!r.final;
   bunLineup={};Object.keys(r.lineup||{}).forEach(function(k){bunLineup[k]=(r.lineup[k]||[]).slice();});
@@ -3006,12 +2932,23 @@ function jstNow(){return new Date(Date.now()+9*3600*1000);}
 function todayStr(){return jstNow().toISOString().slice(0,10);}
 function curMonth(){return jstNow().toISOString().slice(0,7);}
 /* 暦ベースの「その月の第何週」。1日を含む週を第1週とし、月曜始まりで数える */
-function calWeekOfMonth(dateStr){var p=(dateStr||'').split('-');if(p.length<3)return 0;var y=+p[0],m=+p[1],d=+p[2];if(!y||!m||!d)return 0;var fd=(new Date(y,m-1,1).getDay()+6)%7;return Math.ceil((d+fd)/7);}
+/* 週は「月曜〜日曜の7日間」。キーはその週の月曜日の日付（YYYY-MM-DD）。月はまたいでも1週として扱う */
+function _ymdUTC(t){var d=new Date(t);return d.getUTCFullYear()+'-'+('0'+(d.getUTCMonth()+1)).slice(-2)+'-'+('0'+d.getUTCDate()).slice(-2);}
+function _utcOf(ds){var p=String(ds||'').split('-');if(p.length<3)return NaN;return Date.UTC(+p[0],+p[1]-1,+p[2]);}
+function wkOf(ds){var t=_utcOf(ds);if(isNaN(t))return '';var dow=(new Date(t).getUTCDay()+6)%7;return _ymdUTC(t-dow*86400000);}
+function wkAdd(k,days){var t=_utcOf(k);return isNaN(t)?'':_ymdUTC(t+days*86400000);}
+function _md(ds){var p=ds.split('-');return parseInt(p[1],10)+'/'+parseInt(p[2],10);}
+/* 表示用：9/28〜10/4。今年以外・年をまたぐ週は先頭に年を付ける（2025/12/29〜1/4） */
+function wkLbl(k){
+  if(!k)return '';
+  var e=wkAdd(k,6),cy=todayStr().slice(0,4);
+  var pre=(k.slice(0,4)!==cy||e.slice(0,4)!==k.slice(0,4))?k.slice(0,4)+'/':'';
+  return pre+_md(k)+'〜'+_md(e);
+}
 /* レコードの週（新:日付から算出 / 旧:sess）と月 */
-function recWeek(e){return e&&e.date?calWeekOfMonth(e.date):(e&&e.sess?e.sess:0);}
-function recWeekLabel(e){var w=recWeek(e);return w>0?'第'+w+'週':'月計';}
+function recWk(e){return e&&e.date?wkOf(e.date):'';}
 /* 展開履歴の期間表示：日付があれば実日付、なければ月＋週 */
-function recPeriodLabel(e){return e&&e.date?selfDateF(e.date):(fm(e.d)+' '+recWeekLabel(e));}
+function recPeriodLabel(e){return e&&e.date?selfDateF(e.date):fm(e.d||'');}
 function tJobs(){
   if(jobView==='detail')return tJobDetail();
   if(jobView==='create')return tJobCreate();
@@ -3428,14 +3365,8 @@ function lgMatchDetail(r){
 }
 /* ===== 試合と練習の比較 ===== */
 var LG_PRAC_DAYS=28;  // 各試合の何日前までの練習を「直近の練習」とみなすか
-/* 練習記録の日付。古い記録は日付がなく月・週だけなので、その週の中ほどの日で代用する */
-function _sRecDate(e){
-  if(e.date)return e.date;
-  if(!e.d)return '';
-  var w=e.sess||0;if(!w)return '';
-  var day=Math.min(28,(w-1)*7+4);
-  return e.d+'-'+(day<10?'0':'')+day;
-}
+/* 練習記録の日付 */
+function _sRecDate(e){return e.date||'';}
 function _dayNum(ds){var p=ds.split('-');return Date.UTC(+p[0],+p[1]-1,+p[2])/86400000;}
 /* 選手ごとに、出場した試合それぞれの前28日間の練習を合算（同じ記録は1回だけ数える） */
 function lgPracCompare(recs,ag){
@@ -3882,13 +3813,12 @@ function indivMonthly(name){
 }
 function indivWeekly(name){
   var seen={};
-  S.filter(function(e){return e.mb===name&&recWeek(e)>0;}).forEach(function(e){seen[e.d+'|'+recWeek(e)]=1;});
+  S.filter(function(e){return e.mb===name&&recWk(e);}).forEach(function(e){seen[recWk(e)]=1;});
   return Object.keys(seen).sort(function(a,b){return b.localeCompare(a);}).map(function(k){
-    var p=k.split('|');var d=p[0];var si=parseInt(p[1],10);
-    var entries=S.filter(function(e){return e.d===d&&recWeek(e)===si&&e.mb===name;});
+    var entries=S.filter(function(e){return recWk(e)===k&&e.mb===name;});
     var sh=entries.reduce(function(a,e){return a+e.sh;},0);
     var hi=entries.reduce(function(a,e){return a+e.hi;},0);
-    return{key:k,month:d,sess:si,sh:sh,hi:hi,rate:sh?hi/sh:0};
+    return{key:k,sh:sh,hi:hi,rate:sh?hi/sh:0};
   });
 }
 function recHasKaichu(e){
@@ -3902,19 +3832,13 @@ function recHasKaichu(e){
   // 内訳なし：保存済みフラグ or 4射4中レコードで代替
   return e.kaichu===true||(e.sh===4&&e.hi===4);
 }
-/* 実績バッジの解放日表示用。日付あり→2025.9.24、日付なし（週単位の記録）→2025.9 第2週 */
+/* 実績バッジの解放日表示用（2025.9.24） */
 function achDateLabel(e){
-  if(e.date){var p=String(e.date).split('-');return p[0]+'.'+parseInt(p[1],10)+'.'+parseInt(p[2],10);}
-  var q=String(e.d||'').split('-');if(q.length<2)return '';
-  var w=recWeek(e);
-  return q[0]+'.'+parseInt(q[1],10)+(w>0?' 第'+w+'週':'');
+  if(!e.date)return '';
+  var p=String(e.date).split('-');return p[0]+'.'+parseInt(p[1],10)+'.'+parseInt(p[2],10);
 }
-/* 記録を古い順に並べるためのキー（日付なしは週から日付を概算） */
-function achSortKey(e){
-  if(e.date)return String(e.date);
-  var w=recWeek(e);var day=w>0?w*7-6:28;
-  return (e.d||'')+'-'+(day<10?'0':'')+day;
-}
+/* 記録を古い順に並べるためのキー */
+function achSortKey(e){return String(e.date||'');}
 function getAchievements(name){
   var entries=S.filter(function(e){return e.mb===name;})
     .sort(function(a,b){var ka=achSortKey(a),kb=achSortKey(b);return ka<kb?-1:ka>kb?1:0;});
@@ -4012,8 +3936,6 @@ function personProfileCard(name){
 }
 /* 記録内訳の並び替えキー（新しい順） */
 function recSortDesc(a,b){
-  var wd=recWeek(b)-recWeek(a);
-  if(wd)return wd;
   var da=a.date||'',db=b.date||'';
   if(da!==db)return db.localeCompare(da);
   return (b.id||0)-(a.id||0);
@@ -4099,13 +4021,13 @@ function personOfficialView(name){
     wkData.forEach(function(w,i){
       var wkOpen=indivWkExpand===w.key;
       wkRows+='<tr>'
-        +'<td class="tl" style="font-size:12px">'+fm(w.month)+' 第'+w.sess+'週</td>'
+        +'<td class="tl" style="font-size:12px">'+wkLbl(w.key)+'</td>'
         +'<td style="font-weight:700;color:'+rc(w.rate)+'">'+(w.rate*100).toFixed(1)+'%</td>'
         +'<td class="mono" style="color:'+(wkOpen?'var(--acc)':'var(--sub)')+';font-size:12px;cursor:pointer;text-decoration:underline;text-decoration-style:dotted" data-wk-expand="'+esc(w.key)+'">'+w.hi+'/'+w.sh+'</td>'
         +'<td style="font-size:11px">'+wkTrend(i)+'</td>'
         +'</tr>';
       if(wkOpen){
-        wkRows+=recBreakdownHTML(S.filter(function(e){return e.mb===name&&e.d===w.month&&recWeek(e)===w.sess;}).slice().sort(recSortDesc),4);
+        wkRows+=recBreakdownHTML(S.filter(function(e){return e.mb===name&&recWk(e)===w.key;}).slice().sort(recSortDesc),4);
       }
     });
     wkContent=weekly.length
@@ -4210,19 +4132,15 @@ function anaBuckets(recs,gran){
   recs.forEach(function(e){
     var k;
     if(gran==='month')k=e.d;
-    else{var w=recWeek(e);if(!w)return;k=e.d+'|'+w;}
+    else{k=recWk(e);if(!k)return;}
     if(!map[k]){map[k]={sh:0,hi:0};keys.push(k);}
     map[k].sh+=e.sh;map[k].hi+=e.hi;
   });
-  keys.sort(function(a,b){
-    var pa=a.split('|'),pb=b.split('|');
-    return pa[0]!==pb[0]?(pa[0]<pb[0]?-1:1):(parseInt(pa[1]||0,10)-parseInt(pb[1]||0,10));
-  });
+  keys.sort();
   return{keys:keys,map:map};
 }
 function anaBucketLbl(k,gran){
-  var p=k.split('|'),ym=p[0].split('-');
-  return gran==='month'?(parseInt(ym[1],10)+'月'):(parseInt(ym[1],10)+'/'+p[1]+'週');
+  return gran==='month'?(parseInt(k.split('-')[1],10)+'月'):_md(k);   // 週は月曜の日付（9/28）
 }
 function anaTrendChart(name,rg,gran){
   var mine=anaBuckets(anaRecs(name,rg.from,rg.to),gran);
@@ -4270,7 +4188,7 @@ function anaTrendChart(name,rg,gran){
     +'<circle cx="'+x(n-1)+'" cy="'+y(lastR)+'" r="4" fill="var(--acc)"/>'
     +'</svg>';
   var leg='<div style="display:flex;flex-wrap:wrap;gap:12px;font-size:10.5px;color:var(--sub);margin-top:4px">'
-    +'<span><svg width="18" height="8"><line x1="0" y1="4" x2="18" y2="4" stroke="var(--acc)" stroke-width="2.2"/></svg> 自分（3区間平均）</span>'
+    +'<span><svg width="18" height="8"><line x1="0" y1="4" x2="18" y2="4" stroke="var(--acc)" stroke-width="2.2"/></svg> '+(gran==='month'?'自分（直近3か月の平均）':'自分（直近3週の平均）')+'</span>'
     +'<span><svg width="18" height="8"><line x1="0" y1="4" x2="18" y2="4" stroke="var(--acc)" stroke-width="1" opacity=".4"/><circle cx="9" cy="4" r="2.5" fill="var(--sf)" stroke="var(--acc)" opacity=".6"/></svg> 自分（各'+(gran==='month'?'月':'週')+'）</span>'
     +'<span><svg width="18" height="8"><line x1="0" y1="4" x2="18" y2="4" stroke="var(--faint)" stroke-width="1.5" stroke-dasharray="4 3"/></svg> 部平均</span>'
     +'</div>';
@@ -4278,8 +4196,7 @@ function anaTrendChart(name,rg,gran){
   var rows='';
   ks.slice().reverse().forEach(function(k){
     var i=ks.indexOf(k),b=mine.map[k];
-    var kp=k.split('|');
-    rows+='<tr><td class="tl" style="font-size:12px">'+fm(kp[0])+(kp[1]?' 第'+kp[1]+'週':'')+'</td>'
+    rows+='<tr><td class="tl" style="font-size:12px">'+(gran==='month'?fm(k):wkLbl(k))+'</td>'
       +'<td style="font-weight:700;color:'+rc(me[i])+'">'+anaPct(me[i])+'</td>'
       +'<td class="mono" style="font-size:12px;color:var(--sub)">'+b.hi+'/'+b.sh+'</td>'
       +'<td style="font-size:12px;color:var(--sub)">'+(tm[i]!=null?anaPct(tm[i]):'—')+'</td></tr>';
@@ -4544,13 +4461,12 @@ function tHi(){
     if(mergeConfirm&&mergeSel.length>=2){
       // 統合の確認・調整パネル
       var mf=mergeForm;
-      var mfWk=mf.date?calWeekOfMonth(mf.date):0;
       out+='<div class="card mb10" style="padding:12px 14px;border-color:var(--acc-ln);background:var(--acc-bg)">'
         +'<div style="font-size:12px;font-weight:700;margin-bottom:4px">'+esc(mf.mb)+' の '+mergeSel.length+' 件を1件に統合</div>'
         +'<div style="font-size:11.5px;color:var(--sub);margin-bottom:8px">選択した記録は削除され、下の内容で1件にまとめられます。的中数・射数は合計で入っています（調整可）。</div>'
         +'<label style="margin:0 0 3px">練習日</label>'
         +'<input id="mf-date" type="date" value="'+(mf.date||'')+'">'
-        +'<div style="font-size:11px;color:var(--sub);margin:4px 0 8px" id="mf-wk">'+(mf.date?fm(mf.date.slice(0,7))+' 第'+mfWk+'週として記録':'')+'</div>'
+        +'<div style="height:8px"></div>'
         +'<div class="row" style="gap:8px;margin-bottom:8px">'
           +'<div style="flex:1"><label style="margin:0 0 3px">的中数</label><input id="mf-hi" type="number" inputmode="numeric" min="0" value="'+mf.hi+'"></div>'
           +'<div style="flex:1"><label style="margin:0 0 3px">射数</label><input id="mf-sh" type="number" inputmode="numeric" min="1" value="'+mf.sh+'"></div>'
@@ -4579,7 +4495,7 @@ function tHi(){
       out+='<div class="li" style="'+(disabled?'opacity:.35;':'')+(checked?'background:var(--acc-bg);':'')+'"'+(disabled?'':' data-merge-pick="'+e.id+'"')+'>'
         +'<div style="width:24px;flex:none;font-size:17px;text-align:center">'+(checked?'☑':'☐')+'</div>'
         +'<div style="flex:1;min-width:0"><span class="nm">'+esc(e.mb)+'</span>'+yb(e.mb)
-        +'<span class="me">'+fm(e.d)+' '+recWeekLabel(e)+'</span>'
+        +'<span class="me">'+selfDateF(e.date)+'</span>'
         +'<div style="font-size:12px;margin-top:1px">'
           +'<span style="font-weight:700;color:'+rc(e.hi/e.sh)+'">'+(e.hi/e.sh*100).toFixed(1)+'%</span>'
           +'<span class="mono" style="color:var(--sub);margin-left:6px">'+e.hi+'/'+e.sh+'本</span>'
@@ -4595,22 +4511,8 @@ function tHi(){
     var inputDate=e.id>1e12?new Date(e.id).toLocaleDateString('ja-JP',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'}):'';
     if(isEdit){
       var ef=editForm;
-      var isDateRec=!!e.date;
-      var periodUI;
-      if(isDateRec){
-        periodUI='<label style="margin:0 0 3px">練習日</label>'
-          +'<input id="ef-date" type="date" value="'+(ef.date||'')+'">'
-          +'<div style="font-size:11px;color:var(--sub);margin:4px 0 0" id="ef-wk">'+(ef.date?fm(ef.date.slice(0,7))+' 第'+calWeekOfMonth(ef.date)+'週として記録':'')+'</div>';
-      }else{
-        var moSel='<select id="ef-mo" style="flex:1;font-size:13px;padding:6px 8px;border:1px solid var(--ln2);border-radius:8px">';
-        months.forEach(function(m){moSel+='<option value="'+m+'"'+(ef.d===m?' selected':'')+'>'+fm(m)+'</option>';});
-        moSel+='</select>';
-        var seSel='<select id="ef-sess" style="flex:1;font-size:13px;padding:6px 8px;border:1px solid var(--ln2);border-radius:8px">'
-          +'<option value="0"'+(ef.sess===0?' selected':'')+'>月計</option>';
-        for(var si=1;si<=6;si++)seSel+='<option value="'+si+'"'+(ef.sess===si?' selected':'')+'>第'+si+'週</option>';
-        seSel+='</select>';
-        periodUI='<div class="row" style="gap:8px">'+moSel+seSel+'</div>';
-      }
+      var periodUI='<label style="margin:0 0 3px">練習日</label>'
+        +'<input id="ef-date" type="date" value="'+(ef.date||'')+'">';
       out+='<div class="card mb10" style="padding:12px 14px">'
         +'<div style="font-size:12px;font-weight:700;color:var(--sub);margin-bottom:6px">'+e.mb+' の記録を編集</div>'
         +periodUI
@@ -4632,7 +4534,7 @@ function tHi(){
         +'</div>';
     } else {
       out+='<div class="li"><div style="flex:1;min-width:0"><span class="nm">'+esc(e.mb)+'</span>'+yb(e.mb)
-        +'<span class="me">'+fm(e.d)+' '+recWeekLabel(e)+(e.date?'（'+selfDateS(e.date)+'）':'')+'</span>'
+        +'<span class="me">'+selfDateF(e.date)+'</span>'
         +'<div style="font-size:12px;margin-top:1px">'
           +'<span style="font-weight:700;color:'+rc(e.hi/e.sh)+'">'+(e.hi/e.sh*100).toFixed(1)+'%</span>'
           +'<span class="mono" style="color:var(--sub);margin-left:6px">'+e.hi+'/'+e.sh+'本</span>'
@@ -4657,14 +4559,8 @@ function doEditSave(id){
   var e=S.find(function(x){return x.id===id;});
   if(!e){editId=null;paint();return;}
   var dEl=document.getElementById('ef-date');
-  if(dEl){
-    if(!dEl.value){fl('日付を入力してください',true);return;}
-    e.date=dEl.value;e.d=dEl.value.slice(0,7);delete e.sess;
-  }else{
-    var mo=document.getElementById('ef-mo'),se=document.getElementById('ef-sess');
-    if(!mo||!se)return;
-    e.d=mo.value;e.sess=parseInt(se.value,10);delete e.date;
-  }
+  if(!dEl||!dEl.value){fl('日付を入力してください',true);return;}
+  e.date=dEl.value;e.d=dEl.value.slice(0,7);delete e.sess;
   // 編集後の射数・的中が内訳(seq)と食い違う場合は内訳を破棄
   if(typeof e.seq==='string'){
     var seqHit=(e.seq.match(/1/g)||[]).length;
