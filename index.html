@@ -255,7 +255,7 @@ button.tap-bounce{animation:tapBounce .16s ease-out}
    ・マイナー : 機能の追加・仕様の変更（パッチは0に戻す）
    ・パッチ : バグ修正・見た目の微調整・名称変更など
    履歴: v1 build1(6/8 端末内版) / v2 build53(6/13 Firebase共有) / v3 build117(7/2 日付ベース記録) / v4 build170(7/15 4タブ構成) */
-var APP_VERSION='4.32.0',APP_BUILD=254;
+var APP_VERSION='4.32.2',APP_BUILD=256;
 (function(){var el=document.getElementById('app-ver');if(el)el.textContent='v'+APP_VERSION+' (build '+APP_BUILD+')';})();
 var SEED_E=[];
 var SEED_M=[];
@@ -485,7 +485,7 @@ function dbListen(){
 
 /* ============ 分附の下書き同期 ============ */
 function _buildDraftPayload(){
-  return {d:bunD,sess:bunSess,date:bunDate,mode:bunMode,tate:bunTate,tateList:bunTateList,order:bunOrder,data:bunData,
+  return {d:bunD,date:bunDate,mode:bunMode,tate:bunTate,tateList:bunTateList,order:bunOrder,data:bunData,
           lineup:bunLineup,opp:bunOpp,oppHits:bunOppHits,first:bunFirst,venue:bunVenue,kind:bunKind,final:bunFinal||null,editId:lgEditId||null,
           kyosha:{te:bunKyo.te,hon:bunKyo.hon},updatedAt:Date.now(),by:CLIENT_ID};
 }
@@ -530,7 +530,7 @@ function _flushDraft(){
   _draftDirty={};_draftMeta=false;
   var body={updatedAt:Date.now(),by:CLIENT_ID};
   if(meta){ // dataは触らない
-    body.d=bunD;body.sess=bunSess;body.date=bunDate;body.mode=bunMode;
+    body.d=bunD;body.date=bunDate;body.mode=bunMode;
     body.tate=bunTate;body.tateList=bunTateList;body.order=bunOrder||null;
     body.lineup=_isEmptyVal(bunLineup)?null:bunLineup;body.opp=bunOpp||null;body.oppHits=bunOppHits||null;
     body.first=bunFirst||null;body.venue=bunVenue||null;body.kind=bunKind||null;body.final=bunFinal||null;body.editId=lgEditId||null;
@@ -739,13 +739,12 @@ var S=[],M=[],Meta={},A={};
 var tab='input',mo='all',tMode='monthly',sesKey='',histMb='all';
 var sesSel=null,sesOpen=false;
 var fYear='all',fGender='all';
-var form={mb:'',d:CURM,sess:1,sh:'20',hi:''};
 var editId=null,editForm={};
 var pDel=null,pReset=false,attOpen=false,indivMb='',tableView='rank',indivView='official';
 var tbScope='prac',lgOpen=0,lgFilter='league_m',lgDel=0,lgPerOpen='';  // lgPerOpen: 選手別で内訳を開いている人  // 成績表の練習／試合切替と試合の展開状態
 var rankExpandName='';
 var indivMoExpand='',indivWkExpand='',indivWkLimit=12;
-var mergeMode=false,mergeSel=[],mergeConfirm=false,mergeForm={d:'',sess:0,sh:0,hi:0,mb:''};
+var mergeMode=false,mergeSel=[],mergeConfirm=false,mergeForm={date:'',sh:0,hi:0,mb:''};
 /* ---- 自主練 / マイページ ---- */
 var SP=[],KSP='kyudo_sp_v1';
 var Pins={},KPINS='kyudo_pins_v1';
@@ -755,7 +754,7 @@ var selfSub='official',selfPracSub='input',selfOffSub='official',selfForm={date:
 var selfMoKey=null;
 var selfLoginName='',selfSetMode=false;
 function pinHash(s){var h=5381;s=''+s;for(var i=0;i<s.length;i++){h=((h<<5)+h+s.charCodeAt(i))|0;}return 'h'+(h>>>0);}
-var bunD='',bunSess=0,bunDate='',bunMode='',bunData={},bunOrder=null,_bunDrag=null;
+var bunD='',bunDate='',bunMode='',bunData={},bunOrder=null,_bunDrag=null;
 /* 分附の種別。keyは保存値なので後から変えない（既存の下書き・記録が読めなくなる）。
    kind:'prac'=練習 / 'match'=試合。試合系の扱いは今後詰める。 */
 var BUN_MODES=[
@@ -1439,7 +1438,7 @@ var CLICK_ID={
   },
   'btn-bun-next-att':function(){
     if(!bunDate||!bunMode)return;
-    bunD=bunDate.slice(0,7);bunSess=wkOf(bunDate);
+    bunD=bunDate.slice(0,7);
     if(isLeagueMode(bunMode)){
       // リーグ戦は人数・立の構成が決まっているので、出席者選択と立の設定は飛ばす
       bunTate=(LG_TATE[bunMode]||[]).length;
@@ -1481,7 +1480,7 @@ var CLICK_ID={
   'bun-save-modal':function(el,ev){if(ev.target===el){bunSaveStage=0;paint();}},
   'btn-draft-resume':function(){
     var dr=bunDraftRemote;if(!hasBunDraft())return;
-    bunD=dr.d||'';bunSess=dr.sess||0;bunDate=dr.date||(dr.d?dr.d+'-01':'');bunMode=dr.mode||'';bunTate=dr.tate||1;
+    bunDate=dr.date||'';bunD=bunDate.slice(0,7);bunMode=dr.mode||'';bunTate=dr.tate||1;
     bunTateList=(dr.tateList&&dr.tateList.length)?dr.tateList.slice():[4];
     bunOrder=dr.order?dr.order.slice():null;
     bunData={};if(dr.data)Object.keys(dr.data).forEach(function(nm){bunData[nm]=(dr.data[nm]||[]).slice();});
@@ -1602,7 +1601,7 @@ var INPUT_ID={
     var b=document.getElementById('btn-lg-next-lineup');
     if(b){b.disabled=!bunOpp;b.style.opacity=bunOpp?'':'0.45';}
   },
-  'lg-date':function(el){if(!el.value)return;bunDate=el.value;bunD=bunDate.slice(0,7);bunSess=wkOf(bunDate);},
+  'lg-date':function(el){if(!el.value)return;bunDate=el.value;bunD=bunDate.slice(0,7);},
   'lg-opphits':function(el){
     bunOppHits=el.value;
     // ここでpaint()すると入力欄が作り直されてキーボードが閉じるので、表示だけ差し替える
@@ -1793,12 +1792,6 @@ function memberOpts(sel){
     out+='<option value="'+esc(name)+'"'+(name===sel?' selected':'')+'>'+prefix+esc(name)+memberTag(name)+'</option>';
   });
   return out;
-}
-function lp(){
-  var sv=parseFloat(form.sh)||0,hv=parseFloat(form.hi);
-  var b=document.getElementById('pre'),v=document.getElementById('pv');if(!b)return;
-  if(sv>0&&!isNaN(hv)&&hv>=0&&hv<=sv){var r=hv/sv;b.style.display='flex';v.textContent=(r*100).toFixed(1)+'%';v.style.color=rc(r);}
-  else b.style.display='none';
 }
 function selfLpUpdate(){
   var shEl=document.getElementById('sf-sh'),hiEl=document.getElementById('sf-hi');
@@ -2723,7 +2716,6 @@ function lgStartEdit(id){
   resetBunState();
   lgEditId=r.id;
   bunMode=r.mode;bunDate=r.date||'';bunD=r.d||(bunDate?bunDate.slice(0,7):'');
-  bunSess=bunDate?wkOf(bunDate):'';
   bunOpp=r.opp||'';bunOppHits=(r.oppHits==null?'':''+r.oppHits);
   bunFirst=r.first||'';bunVenue=r.venue||'';bunKind=r.kind||'';bunFinal=!!r.final;
   bunLineup={};Object.keys(r.lineup||{}).forEach(function(k){bunLineup[k]=(r.lineup[k]||[]).slice();});
@@ -2775,7 +2767,7 @@ function doSaveLeague(){
 }
 /* 入力状態をまとめて初期化。記録後と破棄で同じ状態に戻す */
 function resetBunState(){
-  bunData={};bunD='';bunSess=0;bunDate='';bunMode='';bunStep='mo-sess';bunOrder=null;
+  bunData={};bunD='';bunDate='';bunMode='';bunStep='mo-sess';bunOrder=null;
   bunTate=1;bunTateList=[4];bunViewMode='table';bunRoundPos=0;bunSaveStage=0;
   bunLineup={};bunOpp='';bunOppHits='';bunKyo={on:false,te:{},hon:{}};lgSubOpen='';
   bunFirst='';bunVenue='';bunKind='';bunFinal=false;lgEditId=0;
@@ -2945,7 +2937,7 @@ function wkLbl(k){
   var pre=(k.slice(0,4)!==cy||e.slice(0,4)!==k.slice(0,4))?k.slice(0,4)+'/':'';
   return pre+_md(k)+'〜'+_md(e);
 }
-/* レコードの週（新:日付から算出 / 旧:sess）と月 */
+/* レコードの週（日付から算出） */
 function recWk(e){return e&&e.date?wkOf(e.date):'';}
 /* 展開履歴の期間表示：日付があれば実日付、なければ月＋週 */
 function recPeriodLabel(e){return e&&e.date?selfDateF(e.date):fm(e.d||'');}
@@ -4560,7 +4552,7 @@ function doEditSave(id){
   if(!e){editId=null;paint();return;}
   var dEl=document.getElementById('ef-date');
   if(!dEl||!dEl.value){fl('日付を入力してください',true);return;}
-  e.date=dEl.value;e.d=dEl.value.slice(0,7);delete e.sess;
+  e.date=dEl.value;e.d=dEl.value.slice(0,7);
   // 編集後の射数・的中が内訳(seq)と食い違う場合は内訳を破棄
   if(typeof e.seq==='string'){
     var seqHit=(e.seq.match(/1/g)||[]).length;
@@ -4590,7 +4582,7 @@ function mergeNext(){
   var sels=S.filter(function(x){return mergeSel.indexOf(x.id)>=0;}).sort(function(a,b){return a.id-b.id;});
   var base=sels[0],sumSh=0,sumHi=0;
   sels.forEach(function(x){sumSh+=x.sh;sumHi+=x.hi;});
-  mergeForm={date:base.date||(base.d?base.d+'-01':todayStr()),sh:sumSh,hi:sumHi,mb:base.mb};
+  mergeForm={date:base.date||todayStr(),sh:sumSh,hi:sumHi,mb:base.mb};
   mergeConfirm=true;paint();
 }
 function doMerge(){
@@ -4611,7 +4603,7 @@ function doMerge(){
   // 内訳(seq)の連結：全件がseqを持ち、連結後の長さが編集後の射数と一致する時のみ保持
   var allSeq=sels.every(function(x){return typeof x.seq==='string';});
   var mergedSeq=allSeq?sels.map(function(x){return x.seq;}).join(''):'';
-  base.date=nd;base.d=nd.slice(0,7);delete base.sess;base.sh=nsh;base.hi=nhi;
+  base.date=nd;base.d=nd.slice(0,7);base.sh=nsh;base.hi=nhi;
   if(allSeq&&mergedSeq.length===nsh){base.seq=mergedSeq;}
   else{delete base.seq;} // 内訳が不整合になる場合は破棄（フラグで皆中は担保）
   if(anyKaichu)base.kaichu=true;
