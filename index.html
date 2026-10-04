@@ -255,7 +255,7 @@ button.tap-bounce{animation:tapBounce .16s ease-out}
    ・マイナー : 機能の追加・仕様の変更（パッチは0に戻す）
    ・パッチ : バグ修正・見た目の微調整・名称変更など
    履歴: v1 build1(6/8 端末内版) / v2 build53(6/13 Firebase共有) / v3 build117(7/2 日付ベース記録) / v4 build170(7/15 4タブ構成) */
-var APP_VERSION='4.32.2',APP_BUILD=256;
+var APP_VERSION='4.33.1',APP_BUILD=258;
 (function(){var el=document.getElementById('app-ver');if(el)el.textContent='v'+APP_VERSION+' (build '+APP_BUILD+')';})();
 var SEED_E=[];
 var SEED_M=[];
@@ -285,6 +285,73 @@ function icn(name,size){
 }
 var DB='https://shiga-kyudo-dx-default-rtdb.asia-southeast1.firebasedatabase.app/kyudo';
 var DRAFT_DB='https://shiga-kyudo-dx-default-rtdb.asia-southeast1.firebasedatabase.app/kyudo/bunDraft';
+/* ======= 匿名認証（Firebase Authentication を REST で利用） =======
+   アプリを開くと裏で匿名アカウントの通行証（IDトークン、有効1時間）を受け取り、
+   データベースへの読み書きすべてに ?auth=トークン を付ける。
+   データベースのルールで「トークンのある通信だけ許可」にすると、URLを直接たたいた
+   アクセスや公開DBを巡回するボットは拒否される。部員の操作は何も変わらない。
+   ・匿名アカウントの再発行用トークン（refresh token）は端末に保存し、毎回同じアカウントを使う
+   ・取得に失敗したときはトークンなしで通信する（ルールを閉じる前なら今まで通り動く） */
+var FB_API_KEY='__FB_API_KEY__';
+var KAUTH='kyudo_auth_v1';
+var _authTok='',_authExp=0,_authWait=null,_authRetryAt=0,_authTimer=null;
+function _authLoadRt(){try{return localStorage.getItem(KAUTH)||'';}catch(e){return '';}}
+function _authSaveRt(rt){try{if(rt)localStorage.setItem(KAUTH,rt);else localStorage.removeItem(KAUTH);}catch(e){}}
+function _authJson(r){
+  return r.json().catch(function(){return {};}).then(function(j){
+    if(!r.ok){var er=new Error('auth http '+r.status);er.status=r.status;throw er;}
+    return j;
+  });
+}
+function _authSignUp(){
+  return fetch('https://identitytoolkit.googleapis.com/v1/accounts:signUp?key='+FB_API_KEY,{
+      method:'POST',headers:{'Content-Type':'application/json'},body:'{"returnSecureToken":true}'})
+    .then(_authJson)
+    .then(function(j){return {id:j.idToken,rt:j.refreshToken,exp:parseInt(j.expiresIn,10)||3600};});
+}
+function _authRefresh(rt){
+  return fetch('https://securetoken.googleapis.com/v1/token?key='+FB_API_KEY,{
+      method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},
+      body:'grant_type=refresh_token&refresh_token='+encodeURIComponent(rt)})
+    .then(_authJson)
+    .then(function(j){return {id:j.id_token,rt:j.refresh_token,exp:parseInt(j.expires_in,10)||3600};});
+}
+function _authRequest(){
+  var rt=_authLoadRt();
+  if(!rt)return _authSignUp();
+  return _authRefresh(rt).catch(function(er){
+    // 保存していた再発行用トークンが無効（アカウント削除など）なら、新しい匿名アカウントを作り直す
+    if(er&&er.status>=400&&er.status<500){_authSaveRt('');return _authSignUp();}
+    throw er;
+  });
+}
+/* 有効なトークンを返す（Promise）。取れなければ ''。force=true で期限内でも取り直す */
+function authToken(force){
+  if(!FB_API_KEY||FB_API_KEY.indexOf('__')===0)return Promise.resolve('');
+  if(!force&&_authTok&&Date.now()<_authExp-60000)return Promise.resolve(_authTok);
+  if(!force&&!_authTok&&Date.now()<_authRetryAt)return Promise.resolve('');  // 直前に失敗したばかり
+  if(_authWait)return _authWait;
+  _authWait=_authRequest().then(function(a){
+    _authTok=a.id;_authExp=Date.now()+a.exp*1000;_authSaveRt(a.rt);_authWait=null;
+    // 期限の5分前に先回りして取り直す
+    clearTimeout(_authTimer);
+    _authTimer=setTimeout(function(){authToken(true);},Math.max(60000,a.exp*1000-300000));
+    return _authTok;
+  },function(){
+    _authWait=null;_authRetryAt=Date.now()+60000;
+    return (_authTok&&Date.now()<_authExp)?_authTok:'';
+  });
+  return _authWait;
+}
+function dbUrl(base,tok){return base+'.json'+(tok?'?auth='+encodeURIComponent(tok):'');}
+/* データベースへの fetch。トークンを付け、401（期限切れなど）なら1回だけ取り直して再送 */
+function dbFetch(base,opts){
+  return authToken().then(function(t){return fetch(dbUrl(base,t),opts);})
+    .then(function(r){
+      if(r.status!==401||!_authTok)return r;
+      return authToken(true).then(function(t){return fetch(dbUrl(base,t),opts);});
+    });
+}
 var CLIENT_ID='c'+Date.now().toString(36)+Math.random().toString(36).slice(2,8);
 var _loading=true,_everHadRemoteData=false,_lastKnownRemoteTs=0;
 var _dbTimer=null,_dirty={};               // セクション単位のダーティ集合
@@ -351,7 +418,7 @@ function dbPush(){
   // 送信中に走ったdbPullが古いリモート値でローカルを上書きし、変更が消える。
   sent.forEach(function(k){_inflight[k]=true;});
   _dot('var(--warn)','同期中...');
-  fetch(DB+'.json',{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
+  dbFetch(DB,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
     .then(function(r){
       if(!r.ok)throw new Error('http '+r.status);
       sent.forEach(function(k){delete _inflight[k];});
@@ -366,7 +433,7 @@ function dbPush(){
 }
 function dbPushFull(){ // 新規セットアップ時のみ：全体をPUT
   _dot('var(--warn)','同期中...');
-  fetch(DB+'.json',{method:'PUT',headers:{'Content-Type':'application/json'},
+  dbFetch(DB,{method:'PUT',headers:{'Content-Type':'application/json'},
     body:JSON.stringify({S:S,M:M,Meta:Meta,A:A,P:P,Jobs:Jobs,SP:SP,Pins:Pins,News:News,GM:GM,t:Date.now(),by:CLIENT_ID,pin:ADMIN_PIN,shonaiPin:SHONAI_PIN})})
     .then(function(r){_dot(r.ok?'var(--good)':'var(--bad)',r.ok?'同期済み':'同期エラー');})
     .catch(function(){_dot('var(--bad)','接続できません');});
@@ -422,7 +489,7 @@ function _applyPatch(d){ // 差分（変更セクションのみ）
 /* ---- 初回プル ---- */
 function dbPull(cb){
   _dot('var(--warn)','接続中...');
-  fetch(DB+'.json')
+  dbFetch(DB)
     .then(function(r){if(!r.ok)throw new Error('http '+r.status);return r.json();})
     .then(function(d){
       if(d&&d.S&&_normList(d.S).length>0){
@@ -449,10 +516,16 @@ function _isDraftPath(path){return !!path&&/^\/bunDraft(\/|$)/.test(path);}
 /* ---- リアルタイム購読（put=全体 / patch=差分） ---- */
 var _es=null;
 function dbListen(){
+  authToken().then(_dbListenWith);
+}
+function _dbListenWith(tok){
   try{
     if(_es){try{_es.close();}catch(ex){}_es=null;}
-    var src=new EventSource(DB+'.json');
+    var src=new EventSource(dbUrl(DB,tok));
     _es=src;
+    // トークンの期限切れ（auth_revoked）・権限なし（cancel）は、取り直してからつなぎ直す
+    src.addEventListener('auth_revoked',function(){try{src.close();}catch(ex){}authToken(true).then(function(){if(_es===src)dbListen();});});
+    src.addEventListener('cancel',function(){try{src.close();}catch(ex){}setTimeout(function(){authToken(true).then(function(){if(_es===src)dbListen();});},8000);});
     src.addEventListener('put',function(e){
       try{
         var p=JSON.parse(e.data);var path=p&&p.path;var d=p&&p.data;
@@ -485,7 +558,7 @@ function dbListen(){
 
 /* ============ 分附の下書き同期 ============ */
 function _buildDraftPayload(){
-  return {d:bunD,date:bunDate,mode:bunMode,tate:bunTate,tateList:bunTateList,order:bunOrder,data:bunData,
+  return {sid:bunSid||null,d:bunD,date:bunDate,mode:bunMode,tate:bunTate,tateList:bunTateList,order:bunOrder,data:bunData,
           lineup:bunLineup,opp:bunOpp,oppHits:bunOppHits,first:bunFirst,venue:bunVenue,kind:bunKind,final:bunFinal||null,editId:lgEditId||null,
           kyosha:{te:bunKyo.te,hon:bunKyo.hon},updatedAt:Date.now(),by:CLIENT_ID};
 }
@@ -507,6 +580,7 @@ function scheduleDbPushDraft(name){
 /* 下書きの作成・作り直し。既に下書きがある時はPUTせず、
    構造＋自分の全列をPATCHでマージする（他端末の列を消さない）。 */
 function dbPushDraft(){
+  if(hasBunDraft()&&bunSid&&bunDraftRemote.sid&&bunDraftRemote.sid!==bunSid){_abandonStaleBun('別の分附が始まっているため、この端末の入力を終了しました');return;}
   if(hasBunDraft()){
     _draftMeta=true;
     Object.keys(bunData).forEach(function(nm){_draftDirty[nm]=true;});
@@ -515,13 +589,17 @@ function dbPushDraft(){
   }
   _flushDraft();
 }
+var _draftChain=Promise.resolve();   // 下書きの送信は1本ずつ順番に（作成PUTより先に列PATCHが届かないように）
 function _flushDraft(){
   if(_draftTimer){clearTimeout(_draftTimer);_draftTimer=null;}
   if(_draftFull){
     _draftFull=false;_draftMeta=false;_draftDirty={};
+    if(!bunSid)bunSid='s'+Date.now().toString(36)+Math.random().toString(36).slice(2,6);
     Object.keys(bunData).forEach(function(nm){_draftSent[nm]=_colSig(bunData[nm]);});
-    fetch(DRAFT_DB+'.json',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(_buildDraftPayload())})
-      .catch(function(){});
+    var payload=JSON.stringify(_buildDraftPayload());
+    _draftChain=_draftChain.then(function(){
+      return dbFetch(DRAFT_DB,{method:'PUT',headers:{'Content-Type':'application/json'},body:payload});
+    }).catch(function(){});
     return;
   }
   var names=Object.keys(_draftDirty);
@@ -535,13 +613,27 @@ function _flushDraft(){
     body.lineup=_isEmptyVal(bunLineup)?null:bunLineup;body.opp=bunOpp||null;body.oppHits=bunOppHits||null;
     body.first=bunFirst||null;body.venue=bunVenue||null;body.kind=bunKind||null;body.final=bunFinal||null;body.editId=lgEditId||null;
   }
+  names=names.filter(_bunColValid);   // 今の分附に属さない列は送らない
   names.forEach(function(nm){body['data/'+nm]=bunData[nm]||null;_draftSent[nm]=_colSig(bunData[nm]);}); // 変更列のみ深いPATCH
-  fetch(DRAFT_DB+'.json',{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
-    .catch(function(){names.forEach(function(nm){_draftDirty[nm]=true;});if(meta)_draftMeta=true;});
+  var mySid=bunSid;
+  _draftChain=_draftChain.then(function(){
+    // 送る前に、サーバーの下書きが自分の分附のままか確かめる（sidのない古い下書きは確かめない）
+    if(!mySid)return true;
+    return dbFetch(DRAFT_DB+'/sid').then(function(r){if(!r.ok)throw new Error('http '+r.status);return r.json();})
+      .then(function(remoteSid){
+        if(remoteSid===mySid)return true;
+        if(bunSid===mySid)_abandonStaleBun(remoteSid?'別の分附が始まっているため、この端末の入力を終了しました':null);
+        return false;
+      });
+  }).then(function(ok){
+    if(!ok)return;
+    return dbFetch(DRAFT_DB,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
+      .then(function(r){if(!r.ok)throw new Error('http '+r.status);});
+  }).catch(function(){names.forEach(function(nm){_draftDirty[nm]=true;});if(meta)_draftMeta=true;});
 }
 function dbDeleteDraft(){
   _draftFull=false;_draftMeta=false;_draftDirty={};_draftSent={};
-  fetch(DRAFT_DB+'.json',{method:'PUT',headers:{'Content-Type':'application/json'},body:'null'})
+  dbFetch(DRAFT_DB,{method:'PUT',headers:{'Content-Type':'application/json'},body:'null'})
     .catch(function(){});
   bunDraftRemote=null;
 }
@@ -563,7 +655,7 @@ function _normDraft(d){ // 受信下書きを正規化
   return d;
 }
 function dbPullDraft(cb){
-  fetch(DRAFT_DB+'.json')
+  dbFetch(DRAFT_DB)
     .then(function(r){if(!r.ok)throw new Error('http '+r.status);return r.json();})
     .then(function(d){bunDraftRemote=(d&&d.d)?_normDraft(d):null;if(cb)cb();})
     .catch(function(){if(cb)cb();});
@@ -594,6 +686,7 @@ function _syncBunCellsToDom(){ // スクロール位置を保ったままセル�
    ・まだ送っていない手元の入力がある列（手元が最新）
    ・送信中で結果待ちの列 */
 function _applyDraftCol(nm,col){
+  if(!_bunColValid(nm))return false;   // 今の分附に属さない列（別の分附の残りなど）は取り込まない
   if(!bunDraftRemote)bunDraftRemote={};
   if(!bunDraftRemote.data)bunDraftRemote.data={};
   bunDraftRemote.data[nm]=col;
@@ -631,9 +724,11 @@ function _onDraftPut(e){
     if(path==='/'){
       if(!d||!d.d){ // 下書きが削除された（保存・破棄された）
         bunDraftRemote=null;_draftSent={};
+        if(bunSid&&bunStep!=='mo-sess'){_abandonStaleBun();return;}   // 自分が入力中の分附が他の端末で記録・破棄された
         if(tab==='input'&&bunStep==='mo-sess')paint();
         return;
       }
+      if(bunSid&&d.sid&&d.sid!==bunSid&&bunStep!=='mo-sess'){_abandonStaleBun('別の分附が始まっているため、この端末の入力を終了しました');return;}
       if(d.by===CLIENT_ID){bunDraftRemote=_normDraft(d);return;} // 自分の書き込み
       var nd=_normDraft(d);
       bunDraftRemote=nd;
@@ -691,13 +786,20 @@ function _onDraftPatch(e){
     _draftRepaint();
   }catch(ex){}
 }
+var _esDraft=null;
 function dbListenDraft(){
-  try{
-    var src=new EventSource(DRAFT_DB+'.json');
-    src.addEventListener('put',_onDraftPut);
-    src.addEventListener('patch',_onDraftPatch);
-    src.onerror=function(){if(src.readyState===2)setTimeout(dbListenDraft,8000);};
-  }catch(ex){}
+  authToken().then(function(tok){
+    try{
+      if(_esDraft){try{_esDraft.close();}catch(ex){}_esDraft=null;}
+      var src=new EventSource(dbUrl(DRAFT_DB,tok));
+      _esDraft=src;
+      src.addEventListener('put',_onDraftPut);
+      src.addEventListener('patch',_onDraftPatch);
+      src.addEventListener('auth_revoked',function(){try{src.close();}catch(ex){}authToken(true).then(function(){if(_esDraft===src)dbListenDraft();});});
+      src.addEventListener('cancel',function(){try{src.close();}catch(ex){}setTimeout(function(){authToken(true).then(function(){if(_esDraft===src)dbListenDraft();});},8000);});
+      src.onerror=function(){if(src.readyState===2)setTimeout(dbListenDraft,8000);};
+    }catch(ex){}
+  });
 }
 var BKUP_KEY='kyudo_backup_ts';
 var logoTapCount=0,logoTapTimer=null;
@@ -754,7 +856,7 @@ var selfSub='official',selfPracSub='input',selfOffSub='official',selfForm={date:
 var selfMoKey=null;
 var selfLoginName='',selfSetMode=false;
 function pinHash(s){var h=5381;s=''+s;for(var i=0;i<s.length;i++){h=((h<<5)+h+s.charCodeAt(i))|0;}return 'h'+(h>>>0);}
-var bunD='',bunDate='',bunMode='',bunData={},bunOrder=null,_bunDrag=null;
+var bunSid='',bunD='',bunDate='',bunMode='',bunData={},bunOrder=null,_bunDrag=null;
 /* 分附の種別。keyは保存値なので後から変えない（既存の下書き・記録が読めなくなる）。
    kind:'prac'=練習 / 'match'=試合。試合系の扱いは今後詰める。 */
 var BUN_MODES=[
@@ -876,7 +978,8 @@ function lgPersonStats(rec){
 }
 function lgTotals(rec){
   var sh=0,hi=0;
-  Object.keys(rec.data||{}).forEach(function(k){
+  var keys=lgSlots(rec.mode||bunMode).map(function(sl){return sl.key;});   // 射位キーの列だけ数える
+  Object.keys(rec.data||{}).filter(function(k){return keys.indexOf(k)>=0;}).forEach(function(k){
     (rec.data[k]||[]).forEach(function(v){if(v!=null){sh++;if(v===true)hi++;}});
   });
   return {sh:sh,hi:hi};
@@ -1480,7 +1583,7 @@ var CLICK_ID={
   'bun-save-modal':function(el,ev){if(ev.target===el){bunSaveStage=0;paint();}},
   'btn-draft-resume':function(){
     var dr=bunDraftRemote;if(!hasBunDraft())return;
-    bunDate=dr.date||'';bunD=bunDate.slice(0,7);bunMode=dr.mode||'';bunTate=dr.tate||1;
+    bunSid=dr.sid||'';bunDate=dr.date||'';bunD=bunDate.slice(0,7);bunMode=dr.mode||'';bunTate=dr.tate||1;
     bunTateList=(dr.tateList&&dr.tateList.length)?dr.tateList.slice():[4];
     bunOrder=dr.order?dr.order.slice():null;
     bunData={};if(dr.data)Object.keys(dr.data).forEach(function(nm){bunData[nm]=(dr.data[nm]||[]).slice();});
@@ -1965,6 +2068,7 @@ function ensureBunData(){
   });
   Object.keys(bunData).forEach(function(name){
     if(members.indexOf(name)>=0)return;
+    if(!_bunColValid(name)){delete bunData[name];return;}   // 今の分附に属さない列は入力済みでも消す
     if((bunData[name]||[]).some(function(v){return v!=null;}))return; // 入力済みの列は消さない
     delete bunData[name];
   });
@@ -2735,7 +2839,7 @@ function doSaveLeague(){
   var _nbS=lgCurBlocks();
   lgSlots(bunMode).forEach(function(sl){lineup[sl.key]=(bunLineup[sl.key]||[]).slice(0,_nbS);});
   var data={};
-  Object.keys(bunData).forEach(function(k){data[k]=(bunData[k]||[]).slice(0,_nbS*LG_PER);});
+  lgSlots(bunMode).forEach(function(sl){if(bunData[sl.key])data[sl.key]=bunData[sl.key].slice(0,_nbS*LG_PER);});
   var kyo=null;
   var hasKyo=false;
   ['te','hon'].forEach(function(kind){
@@ -2770,8 +2874,22 @@ function resetBunState(){
   bunData={};bunD='';bunDate='';bunMode='';bunStep='mo-sess';bunOrder=null;
   bunTate=1;bunTateList=[4];bunViewMode='table';bunRoundPos=0;bunSaveStage=0;
   bunLineup={};bunOpp='';bunOppHits='';bunKyo={on:false,te:{},hon:{}};lgSubOpen='';
-  bunFirst='';bunVenue='';bunKind='';bunFinal=false;lgEditId=0;
+  bunFirst='';bunVenue='';bunKind='';bunFinal=false;lgEditId=0;bunSid='';
   _draftBannerDismissed=false;bunDraftRemote=null;
+}
+/* この端末の分附が、すでに記録・破棄された／別の分附に置き換わったときは、
+   手元の入力を送らずに入力画面から抜ける（古い入力が新しい分附に混ざるのを防ぐ） */
+function _abandonStaleBun(msg){
+  _draftFull=false;_draftMeta=false;_draftDirty={};_draftSent={};
+  if(_draftTimer){clearTimeout(_draftTimer);_draftTimer=null;}
+  resetBunState();
+  fl(msg||'この分附は別の端末で記録または破棄されたため、入力を終了しました',true);
+  paint();
+}
+/* 列の名前が今の分附に属するか（リーグ戦＝射位キー、正規練＝部員名） */
+function _bunColValid(nm){
+  if(isLeagueMode(bunMode))return lgSlots(bunMode).some(function(sl){return sl.key===nm;});
+  return M.indexOf(nm)>=0;
 }
 function doSaveBun(){
   var members=getBunMembers();var saved=0;
