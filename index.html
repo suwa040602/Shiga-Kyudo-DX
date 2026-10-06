@@ -248,14 +248,41 @@ button.tap-bounce{animation:tapBounce .16s ease-out}
 </div>
 <div id="ov-root"></div>
 <script>
-/* ===== バージョン =====
+/* ===== 目次 =====
+   見出しは「§番号」で検索すると飛べます（例：§12 で分附入力へ）。
+   見た目（色・大きさ・余白）はこのファイル先頭の <style> 内、動きと処理はこの <script> 内にあります。
+   §01 バージョン・アイコン画像 … 更新のたびに APP_VERSION / APP_BUILD を変える
+   §02 Firebase接続（URL・匿名認証）
+   §03 データ同期（本体：記録・部員・出欠など） … 記録は1件ずつ送受信（三者比較）
+   §04 分附の下書き同期
+   §05 状態変数（画面の状態・データの入れ物） … localStorage のキー名もここ
+   §06 PIN（ハッシュ化・照合・連続失敗ロック）
+   §07 分附・試合の定義（種別・射位・立目・部員番号） … BUN_MODES / SEED_NUMS
+   §08 管理者ログイン（生体認証・PIN入力）
+   §09 起動・保存・共通の計算 … load() / sv〇〇()（保存して送信）
+   §10 画面の描画（タブ切替・paint）
+   §11 イベント処理（ボタンと処理の対応表） … CLICK_ID など。ボタンの動作を探すならここ
+   §12 分附入力・出欠
+   §13 罰則
+   §14 仕事（求人）
+   §15 成績表・試合の分析
+   §16 個人ページ・詳細分析
+   §17 履歴・記録の編集
+   §18 自主練・マイページ
+   §19 お知らせ
+   §20 オーバーレイ（お知らせ・設定の枠）
+   §21 設定・部員管理
+   §22 バックアップ（全消去・エクスポート・インポート）
+   §23 共通（エスケープ）・起動
+*/
+/* ===== §01 バージョン・アイコン画像 =====
    表示形式: v メジャー.マイナー.パッチ (build 通し番号)
    ・build : ファイルを出力するたびに必ず +1
    ・メジャー : データの持ち方や画面の骨組みが大きく変わったとき（マイナー・パッチは0に戻す）
    ・マイナー : 機能の追加・仕様の変更（パッチは0に戻す）
    ・パッチ : バグ修正・見た目の微調整・名称変更など
    履歴: v1 build1(6/8 端末内版) / v2 build53(6/13 Firebase共有) / v3 build117(7/2 日付ベース記録) / v4 build170(7/15 4タブ構成) / v5 build260(10/6 記録単位の同期・PINハッシュ化) */
-var APP_VERSION='5.0.0',APP_BUILD=260;
+var APP_VERSION='5.0.1',APP_BUILD=261;
 (function(){var el=document.getElementById('app-ver');if(el)el.textContent='v'+APP_VERSION+' (build '+APP_BUILD+')';})();
 var SEED_E=[];
 var SEED_M=[];
@@ -283,9 +310,10 @@ function icn(name,size){
   var tail=name==='csv'?'<text x="12" y="18" font-size="6" font-weight="700" text-anchor="middle" fill="currentColor" stroke="none">CSV</text>':'';
   return o+body+tail+'</svg>';
 }
+/* ===== §02 Firebase接続（URL・匿名認証） ===== */
 var DB='https://shiga-kyudo-dx-default-rtdb.asia-southeast1.firebasedatabase.app/kyudo';
 var DRAFT_DB='https://shiga-kyudo-dx-default-rtdb.asia-southeast1.firebasedatabase.app/kyudo/bunDraft';
-/* ======= 匿名認証（Firebase Authentication を REST で利用） =======
+/* ---- 匿名認証（Firebase Authentication を REST で利用） ----
    アプリを開くと裏で匿名アカウントの通行証（IDトークン、有効1時間）を受け取り、
    データベースへの読み書きすべてに ?auth=トークン を付ける。
    データベースのルールで「トークンのある通信だけ許可」にすると、URLを直接たたいた
@@ -352,6 +380,7 @@ function dbFetch(base,opts){
       return authToken(true).then(function(t){return fetch(dbUrl(base,t),opts);});
     });
 }
+/* ===== §03 データ同期（本体：記録・部員・出欠など） ===== */
 var CLIENT_ID='c'+Date.now().toString(36)+Math.random().toString(36).slice(2,8);
 var _loading=true,_everHadRemoteData=false,_lastKnownRemoteTs=0;
 var _dbTimer=null,_dirty={};               // セクション単位のダーティ集合
@@ -751,7 +780,7 @@ function _dbListenWith(tok){
   }catch(ex){}
 }
 
-/* ============ 分附の下書き同期 ============ */
+/* ===== §04 分附の下書き同期 ===== */
 function _buildDraftPayload(){
   return {sid:bunSid||null,d:bunD,date:bunDate,mode:bunMode,tate:bunTate,tateList:bunTateList,order:bunOrder,data:bunData,
           lineup:bunLineup,opp:bunOpp,oppHits:bunOppHits,first:bunFirst,venue:bunVenue,kind:bunKind,final:bunFinal||null,editId:lgEditId||null,
@@ -996,6 +1025,7 @@ function dbListenDraft(){
     }catch(ex){}
   });
 }
+/* ===== §05 状態変数（画面の状態・データの入れ物） ===== */
 var BKUP_KEY='kyudo_backup_ts';
 var logoTapCount=0,logoTapTimer=null;
 var GEAR_ICON='data:image/png;base64,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';
@@ -1051,6 +1081,7 @@ var anaPeriod='3m',anaGran='week',anaFrom='',anaTo='',anaMatchGrp=null,indivOffM
 var selfSub='official',selfPracSub='input',selfOffSub='official',selfForm={date:'',sh:'20',hi:''},selfMarks=[];
 var selfMoKey=null;
 var selfLoginName='',selfSetMode=false;
+/* ===== §06 PIN（ハッシュ化・照合・連続失敗ロック） ===== */
 function pinHash(s){var h=5381;s=''+s;for(var i=0;i<s.length;i++){h=((h<<5)+h+s.charCodeAt(i))|0;}return 'h'+(h>>>0);}
 /* ---- PIN：平文では保存しない（塩付きSHA-256を反復）。旧形式（平文・簡易ハッシュ）は一致したら自動で新形式へ ---- */
 function sha256hex(str){
@@ -1105,6 +1136,7 @@ function pinFailed(){
   try{localStorage.setItem(KPINFAIL,JSON.stringify(f));}catch(e){}
 }
 function pinOk(){try{localStorage.removeItem(KPINFAIL);}catch(e){}}
+/* ===== §07 分附・試合の定義（種別・射位・立目・部員番号） ===== */
 var bunSid='',bunD='',bunDate='',bunMode='',bunData={},bunOrder=null,_bunDrag=null;
 /* 分附の種別。keyは保存値なので後から変えない（既存の下書き・記録が読めなくなる）。
    kind:'prac'=練習 / 'match'=試合。試合系の扱いは今後詰める。 */
@@ -1140,7 +1172,7 @@ function lgHeadLine(){
   if(bunFirst)tags.push(lgOptLabel(LG_FIRST,bunFirst));
   return t+(tags.length?'（'+tags.join('・')+'）':'');
 }
-/* ===== リーグ戦の枠組み =====
+/* ---- リーグ戦の枠組み ----
    男子：2立（前立・後立）× 射位4 × 5立目（4射）＝160射
    女子：1立 × 射位4 × 5立目 ＝80射
    マス（＝射位）を軸に持ち、4射の区切りごとに誰が入ったかを別で持つ。
@@ -1285,7 +1317,8 @@ function membersSorted(){
     return na!==nb?na-nb:M.indexOf(a)-M.indexOf(b);
   });
 }
-/* ======= 生体認証（WebAuthn / パスキー） =======
+/* ===== §08 管理者ログイン（生体認証・PIN入力） ===== */
+/* ---- 生体認証（WebAuthn / パスキー） ----
    端末ローカルの解錠補助。サーバー検証は無いため、
    セキュリティ強度はPINと同等（利便性のための機能）。 */
 var KBIO='kyudo_bio_v1';
@@ -1383,6 +1416,7 @@ function askPin(msg,cb,onRetryBio){
   ov.querySelector('#_askpin-cancel').addEventListener('click',function(){done(null);});
   ov.addEventListener('click',function(e){if(e.target===ov)done(null);});
 }
+/* ===== §09 起動・保存・共通の計算 ===== */
 function load(){
   var localWasEmpty=false,missing=[];
   function rd(key,sec,def){
@@ -1603,13 +1637,14 @@ function presentMembers(){
   if(!A[key])return sorted; // 出欠未登録=全員表示
   return sorted.filter(function(n){return A[key].indexOf(n)>=0;});
 }
+/* ===== §10 画面の描画（タブ切替・paint） ===== */
 function sw(t){
   if(!adminMode&&!shonaiMode&&t!=='input'&&t!=='table'&&t!=='penalty'&&t!=='self'&&t!=='prac')return;
   if(t==='table'&&!adminMode)return; // 成績表タブは管理者のみ
   tab=t;pDel=null;pReset=false;editId=null;pinPendingType=null;pinPendingVal='';wipeStep=0;rankExpandName='';bunSaveStage=0;bunDraftDiscard=0;if(t!=='table'){mergeMode=false;mergeSel=[];mergeConfirm=false;histOpen=false;}if(t!=='input'){bunStep='mo-sess';}if(t!=='table'){tableView='rank';tbScope='prac';lgOpen=0;lgDel=0;}if(t!=='penalty'){penSubTab='penalty';jobView='list';}paint();
 }
 
-/* ------ paintTabs: data-tab + addEventListener ------ */
+/* ---- タブの描画 ---- */
 function paintTabs(){
   var T=[['input','分附']];
   if(adminMode)T.push(['table','成績表']); // 成績表タブは管理者のみ表示
@@ -1767,8 +1802,7 @@ function setupBunNameBar(){
   vis();
 }
 
-/* ------ bind all dynamic events after innerHTML ------ */
-/* ====== イベント委譲（paintごとの再バインドを廃止） ====== */
+/* ===== §11 イベント処理（ボタンと処理の対応表） ===== */
 /* id→ハンドラ。ハンドラは (el, ev) を受け取る（el=一致した要素） */
 var CLICK_ID={
   'logo-tap':function(){
@@ -2122,7 +2156,7 @@ function initDelegation(){
 /* paintごとに必要なのはポインタ系ドラッグのみ（capture都合で直接バインド） */
 function bindDynamic(){initDragDrop();initBunDragDrop();}
 
-/* ======= INPUT ======= */
+/* ===== §12 分附入力・出欠 ===== */
 function memberOpts(sel){
   var present=presentMembers();
   var key=attKey();
@@ -2142,7 +2176,7 @@ function selfLpUpdate(){
   if(sv>0&&!isNaN(hv)&&hv>=0&&hv<=sv){var r=hv/sv;b.style.display='flex';v.textContent=(r*100).toFixed(1)+'%';v.style.color=rc(r);}
   else b.style.display='none';
 }
-/* ======= ATTENDANCE (inline in input tab) ======= */
+/* ---- 出欠（分附タブ内） ---- */
 function attSection(){
   var key=attKey();
   var all=membersSorted();
@@ -2192,7 +2226,7 @@ function setAllAtt(present){
   A[key]=present?membersSorted().slice():[];
   svA();paint();
 }
-/* ======= 分附 ======= */
+/* ---- 分附 ---- */
 /* レコードの新旧比較：日付 → 同じ日なら登録順（id） */
 function recOrderCmp(a,b){
   var da=a.date||'',db=b.date||'';
@@ -3162,7 +3196,7 @@ function doSaveBun(){
 function resetBun(){dbDeleteDraft();resetBunState();paint();}
 
 
-/* ======= PENALTY ======= */
+/* ===== §13 罰則 ===== */
 var PTYPES=[
   {n:1,lbl:'欠席',pts:2},
   {n:2,lbl:'遅刻',pts:1},
@@ -3276,7 +3310,7 @@ function tPenalty(){
     +list+'</div>';
 }
 
-/* ======= JOBS ======= */
+/* ===== §14 仕事（求人） ===== */
 function jstNow(){return new Date(Date.now()+9*3600*1000);}
 function todayStr(){return jstNow().toISOString().slice(0,10);}
 function curMonth(){return jstNow().toISOString().slice(0,7);}
@@ -3498,7 +3532,7 @@ function doSavePenalty(){
 }
 function delPenalty(id){P=P.filter(function(e){return e.id!==id;});svP();paint();}
 
-/* ======= TABLE ======= */
+/* ===== §15 成績表・試合の分析 ===== */
 function filterRowHTML(){
   return '<div class="frow">'
     +'<select id="sel-fy" class="grow">'
@@ -3520,7 +3554,7 @@ function filterLabel(){
   if(fGender!=='all')parts.push(fGender+'子');
   return parts.length?' ／ '+parts.join('・'):'';
 }
-/* ===== 試合（リーグ戦）の分析 ===== */
+/* ---- 試合（リーグ戦）の分析 ---- */
 function lgRecs(){
   var a=GM.filter(function(r){return isLeagueMode(r.mode);});
   a=a.filter(function(r){return r.mode===lgFilter;});
@@ -3712,7 +3746,7 @@ function lgMatchDetail(r){
       :'')
   +'</div>';
 }
-/* ===== 試合と練習の比較 ===== */
+/* ---- 試合と練習の比較 ---- */
 var LG_PRAC_DAYS=28;  // 各試合の何日前までの練習を「直近の練習」とみなすか
 /* 練習記録の日付 */
 function _sRecDate(e){return e.date||'';}
@@ -3786,7 +3820,7 @@ function lgPerRowCmp(name,c,recs){
     +'</div>'
     :'');
 }
-/* ===== 選手×射位 ===== */
+/* ---- 選手×射位 ---- */
 function lgPosByPerson(recs){
   var out={};
   recs.forEach(function(r){
@@ -4130,7 +4164,7 @@ function doCSV(type){
   a.download='的中表_'+label+'.csv';a.click();
 }
 
-/* ======= INDIVIDUAL PAGE ======= */
+/* ===== §16 個人ページ・詳細分析 ===== */
 function indivAllStats(name){
   var entries=S.filter(function(e){return e.mb===name;});
   var sh=entries.reduce(function(a,e){return a+e.sh;},0);
@@ -4226,7 +4260,7 @@ function toggleAchievement(name,key){
   }
   svM();paint();
 }
-/* ======= 個人ページ（共通） ======= */
+/* ---- 個人ページ（共通） ---- */
 /* 実績バッジ 1個ぶん */
 function personBadge(name,achObj,label,key){
   var svg=BADGE_SVGS[key]||'';
@@ -4395,7 +4429,7 @@ function personOfficialView(name){
     +'</div>'
     +(om==='week'?wkContent:moContent);
 }
-/* ======= 射癖分析（内訳seqを持つ記録のみ集計） ======= */
+/* ---- 射癖分析（内訳seqを持つ記録のみ集計） ---- */
 function indivShotAnalysis(name){
   var recs=S.filter(function(e){return e.mb===name&&typeof e.seq==='string'&&e.seq.length>=4;});
   var posHit=[0,0,0,0],posSh=[0,0,0,0];   // 立ち内の位置（1〜4本目）
@@ -4432,7 +4466,7 @@ function analysisBar(hit,sh){
     +'<span style="width:56px;text-align:right;font-size:12px;color:'+rc(r)+';font-weight:700">'+(sh?pct+'%':'—')+'</span>'
     +'<span style="width:42px;text-align:right;font-size:11px;color:var(--sub)" class="mono">'+hit+'/'+sh+'</span>';
 }
-/* ======= 詳細分析（マイページ・個人ページの「分析」タブ） =======
+/* ---- 詳細分析（マイページ・個人ページの「分析」タブ） ----
    期間で絞り込んだ練習記録(S)・試合記録(GM)から、推移グラフ・射の傾向・試合成績を出す */
 function anaAddDays(d,n){var t=new Date(d+'T00:00:00Z');t.setUTCDate(t.getUTCDate()+n);return t.toISOString().slice(0,10);}
 /* 期間 → {from,to,prevFrom,prevTo,label}。from/to は含む。'all' は from なし */
@@ -4782,7 +4816,7 @@ function tIndivDetail(){
     +'</div>'
     +(indivView==='analysis'?personAnalysisView(name):personOfficialView(name));
 }
-/* ======= HISTORY ======= */
+/* ===== §17 履歴・記録の編集 ===== */
 function tHi(){
   var rev=S.slice().reverse();
   if(histMb!=='all')rev=rev.filter(function(e){return e.mb===histMb;});
@@ -4970,7 +5004,7 @@ function doMerge(){
   svS();fl(n+'件を1件に統合しました');paint();
 }
 
-/* ======= 自主練 / マイページ ======= */
+/* ===== §18 自主練・マイページ ===== */
 function selfEntries(name){return SP.filter(function(e){return e.mb===name;});}
 function selfStats(name){
   var es=selfEntries(name);
@@ -5256,7 +5290,7 @@ function selfRankView(){
   return out;
 }
 
-/* ======= お知らせ ======= */
+/* ===== §19 お知らせ ===== */
 function tNews(){
   if(adminMode&&newsView==='create')return tNewsCreate();
   var createBtn=adminMode?'<button id="btn-news-create" class="btn prim" style="width:100%;margin:0 0 12px">＋ お知らせを投稿</button>':'';
@@ -5330,7 +5364,7 @@ function doDelNews(id){
   newsDelId=null;svNews();fl('お知らせを削除しました');paint();
 }
 
-/* ======= オーバーレイ（お知らせ / 設定） ======= */
+/* ===== §20 オーバーレイ（お知らせ・設定の枠） ===== */
 function renderOverlay(){
   var root=document.getElementById('ov-root');if(!root)return;
   if(overlay==='settings'&&!adminMode&&!shonaiMode)overlay='';
@@ -5359,7 +5393,7 @@ function tSettingsPanel(){
   return head+tSt();
 }
 
-/* ======= SETTINGS ======= */
+/* ===== §21 設定・部員管理 ===== */
 function tSt(){
   if(!adminMode)return '<div class="emp">この画面は管理者のみアクセスできます。</div>';
   var rows='';
@@ -5556,6 +5590,7 @@ function initDragDrop(){
     });
   });
 }
+/* ===== §22 バックアップ（全消去・エクスポート・インポート） ===== */
 /* 全消去・インポートの対象（PINは管理用なので対象外） */
 var DATA_SECS=['S','M','Meta','A','P','Jobs','SP','News','GM','Pins'];
 function _emptyOf(k){return (k==='Meta'||k==='A'||k==='Pins')?{}:[];}
@@ -5621,6 +5656,7 @@ function doImport(file){
   };
   reader.readAsText(file,'utf-8');
 }
+/* ===== §23 共通（エスケープ）・起動 ===== */
 function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');}
 function cssAttr(v){return String(v==null?'':v).replace(/\\/g,'\\\\').replace(/"/g,'\\"');}
 
