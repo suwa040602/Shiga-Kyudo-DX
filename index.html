@@ -282,7 +282,7 @@ button.tap-bounce{animation:tapBounce .16s ease-out}
    ・マイナー : 機能の追加・仕様の変更（パッチは0に戻す）
    ・パッチ : バグ修正・見た目の微調整・名称変更など
    履歴: v1 build1(6/8 端末内版) / v2 build53(6/13 Firebase共有) / v3 build117(7/2 日付ベース記録) / v4 build170(7/15 4タブ構成) / v5 build260(10/6 記録単位の同期・PINハッシュ化) */
-var APP_VERSION='5.0.1',APP_BUILD=261;
+var APP_VERSION='5.0.3',APP_BUILD=263;
 (function(){var el=document.getElementById('app-ver');if(el)el.textContent='v'+APP_VERSION+' (build '+APP_BUILD+')';})();
 var SEED_E=[];
 var SEED_M=[];
@@ -391,6 +391,10 @@ var _draftBannerDismissed=false,bunDraftRemote=null;
 function _dot(col,tip){var el=document.getElementById('sync-dot');if(el){el.style.background=col;el.title=tip;}}
 
 /* ---- localStorage 集約 ---- */
+/* 保存に失敗（容量不足など）したら、以後この起動中は同期の基準(_base)を端末に残さない。
+   「手元の保存は古いのに基準だけ新しい」状態で次に開くと、古い手元を「自分の変更」と誤認して
+   サーバーの記録を消しに行くため。基準が無ければ次回はサーバーを正として読み直す。 */
+var _lsFailed=false;
 function saveLocal(keys){
   var map={S:KS,M:KM,Meta:KMeta,A:KA,P:KP,Jobs:KJ,SP:KSP,Pins:KPINS,News:KN,GM:KGM};
   var vals={S:S,M:M,Meta:Meta,A:A,P:P,Jobs:Jobs,SP:SP,Pins:Pins,News:News,GM:GM};
@@ -398,7 +402,9 @@ function saveLocal(keys){
     (keys||Object.keys(map)).forEach(function(k){
       if(map[k])localStorage.setItem(map[k],JSON.stringify(vals[k]));
     });
-  }catch(e){}
+  }catch(e){
+    if(!_lsFailed){_lsFailed=true;try{localStorage.removeItem(KBASE);}catch(ex){}_dot('var(--warn)','端末の保存容量が不足しています');}
+  }
 }
 
 /* ---- 配列/オブジェクトの正規化（Firebaseは疎配列をオブジェクトで返す） ---- */
@@ -573,7 +579,11 @@ function _secDiff(sec){
   return {body:out,base:nb,whole:false,n:n};
 }
 function _loadBase(){try{var b=JSON.parse(localStorage.getItem(KBASE)||'null');return (b&&typeof b==='object')?b:null;}catch(e){return null;}}
-function _saveBase(){try{localStorage.setItem(KBASE,JSON.stringify(_base));}catch(e){}}
+function _saveBase(){
+  if(_lsFailed)return;
+  try{localStorage.setItem(KBASE,JSON.stringify(_base));}
+  catch(e){_lsFailed=true;try{localStorage.removeItem(KBASE);}catch(ex){}}
+}
 /* 起動時：保存済みの基準が無いセクションは「手元のキャッシュ＝サーバーと一致」とみなす
    （旧版からの更新直後に、他端末で消された記録を復活させないため）。
    手元のキャッシュ自体が無いセクションは基準も空にする（全件削除と誤認しないため）。 */
@@ -610,17 +620,24 @@ function dbPush(){
   if(_loading)return;
   if(_pushing){_dirty._again=true;return;} // 送信は1本ずつ（応答後に続きを送る）
   delete _dirty._again;
+  // 送るものは _dirty に頼らず全項目をサーバーとの差で決める
+  // （sv〇〇() の呼び忘れがあっても、次に何か保存したときに一緒に送られる）
+  var secs=_SECS.slice();
   // 安全弁：部員数0を送ろうとしている場合は誤操作の疑い
-  if(_dirty.M&&(!M||M.length===0)&&_everHadRemoteData&&!_allowMass.M){
-    delete _dirty.M;_dot('var(--bad)','同期中止(空データ)');
+  if((!M||M.length===0)&&_everHadRemoteData&&!_allowMass.M){
+    secs=secs.filter(function(k){return k!=='M';});
+    if(_hash(M)!==(_base.M||{})._)_dot('var(--bad)','同期中止(空データ)');
   }
-  var secs=Object.keys(_dirty).filter(function(k){return k in _SEC_KIND;});
   var body={},parts=[];
   secs.forEach(function(sec){
     var d=_secDiff(sec);
     if(d){Object.keys(d.body).forEach(function(p){body[p]=d.body[p];});parts.push({sec:sec,d:d});}
   });
   _dirty={};
+  // 送る分は先に端末にも保存しておく（端末の保存とサーバーがずれないように）
+  var lk=parts.map(function(x){return x.sec;}).filter(function(k){return _SEC_KIND[k]!=='whole'||k==='M';});
+  if(lk.length)saveLocal(lk);
+  if(parts.some(function(x){return x.sec==='pin'||x.sec==='shonaiPin';}))savePinCache();
   if(!parts.length){if(_pushDoneCbs.length)_runPushDoneCbs();return;}
   body.t=Date.now();body.by=CLIENT_ID;
   _pushing=true;
@@ -713,8 +730,8 @@ function dbPull(cb,_retry){
         markAllDirty();scheduleDbPush();
       }
       // PINがまだ一度も設定されていないDB：初期PINを（ハッシュで）設定
-      if(!ADMIN_PIN){ADMIN_PIN=makePinHash('1234');markDirty('pin');scheduleDbPush();}
-      if(!SHONAI_PIN){SHONAI_PIN=makePinHash('5678');markDirty('shonaiPin');scheduleDbPush();}
+      if(!ADMIN_PIN)svPin('admin','1234');
+      if(!SHONAI_PIN)svPin('shonai','5678');
       savePinCache();
       _dot('var(--good)','同期済み');
       if(cb)cb();
@@ -814,16 +831,31 @@ function dbPushDraft(){
   _flushDraft();
 }
 var _draftChain=Promise.resolve();   // 下書きの送信は1本ずつ順番に（作成PUTより先に列PATCHが届かないように）
+/* 送信失敗時は右上の丸で知らせ、間隔を空けて自動で再送（4秒→8秒→…最大30秒） */
+var _draftFails=0,_draftRetry={},_draftOkSid='';   // _draftOkSid: サーバーに作成できたと確認した分附のsid
+function _draftFailed(key,fn){
+  _draftFails++;
+  _dot('var(--bad)','下書きの同期エラー(再試行します)');
+  if(_draftRetry[key])return;
+  _draftRetry[key]=setTimeout(function(){_draftRetry[key]=null;fn();},Math.min(30000,4000*Math.pow(2,Math.min(_draftFails,4)-1)));
+}
+function _draftOk(){if(_draftFails){_draftFails=0;_dot('var(--good)','同期済み');}}
 function _flushDraft(){
   if(_draftTimer){clearTimeout(_draftTimer);_draftTimer=null;}
   if(_draftFull){
     _draftFull=false;_draftMeta=false;_draftDirty={};
+    if(!bunDate)return;              // 記録・破棄で入力が終わっている（作り直さない）
     if(!bunSid)bunSid='s'+Date.now().toString(36)+Math.random().toString(36).slice(2,6);
     Object.keys(bunData).forEach(function(nm){_draftSent[nm]=_colSig(bunData[nm]);});
     var payload=JSON.stringify(_buildDraftPayload());
+    var newSid=bunSid;
     _draftChain=_draftChain.then(function(){
-      return dbFetch(DRAFT_DB,{method:'PUT',headers:{'Content-Type':'application/json'},body:payload});
-    }).catch(function(){});
+      return dbFetch(DRAFT_DB,{method:'PUT',headers:{'Content-Type':'application/json'},body:payload})
+        .then(function(r){if(!r.ok)throw new Error('http '+r.status);_draftOkSid=newSid;_draftOk();});
+    }).catch(function(){
+      // 作成に失敗：入力は残したまま、作成からやり直す
+      if(bunSid===newSid){_draftFull=true;_draftFailed('flush',_flushDraft);}
+    });
     return;
   }
   var names=Object.keys(_draftDirty);
@@ -845,21 +877,43 @@ function _flushDraft(){
     if(!mySid)return true;
     return dbFetch(DRAFT_DB+'/sid').then(function(r){if(!r.ok)throw new Error('http '+r.status);return r.json();})
       .then(function(remoteSid){
-        if(remoteSid===mySid)return true;
+        if(remoteSid===mySid){_draftOkSid=mySid;return true;}
+        // サーバーに無いのは「まだ作成できていない」だけ（作成の送信が失敗していた）→ 作成からやり直す
+        if(!remoteSid&&_draftOkSid!==mySid&&!(bunDraftRemote&&bunDraftRemote.sid===mySid)){
+          if(bunSid===mySid){_draftFull=true;_draftFailed('flush',_flushDraft);}
+          return false;
+        }
         if(bunSid===mySid)_abandonStaleBun(remoteSid?'別の分附が始まっているため、この端末の入力を終了しました':null);
         return false;
       });
   }).then(function(ok){
     if(!ok)return;
     return dbFetch(DRAFT_DB,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
-      .then(function(r){if(!r.ok)throw new Error('http '+r.status);});
-  }).catch(function(){names.forEach(function(nm){_draftDirty[nm]=true;});if(meta)_draftMeta=true;});
+      .then(function(r){if(!r.ok)throw new Error('http '+r.status);_draftOk();});
+  }).catch(function(){
+    names.forEach(function(nm){_draftDirty[nm]=true;});if(meta)_draftMeta=true;
+    if(bunSid===mySid)_draftFailed('flush',_flushDraft);
+  });
 }
-function dbDeleteDraft(){
+/* 下書きの削除。sid: 消したい分附のsid（記録後は入力状態が先に初期化されるので呼び出し時に渡す） */
+function dbDeleteDraft(sid){
+  if(typeof sid!=='string')sid=bunSid||(bunDraftRemote&&bunDraftRemote.sid)||'';
   _draftFull=false;_draftMeta=false;_draftDirty={};_draftSent={};
-  dbFetch(DRAFT_DB,{method:'PUT',headers:{'Content-Type':'application/json'},body:'null'})
-    .catch(function(){});
+  if(_draftRetry.flush){clearTimeout(_draftRetry.flush);_draftRetry.flush=null;}
   bunDraftRemote=null;
+  _deleteDraftTry(sid,true);
+}
+function _deleteDraftTry(sid,first){
+  function del(){return dbFetch(DRAFT_DB,{method:'PUT',headers:{'Content-Type':'application/json'},body:'null'})
+    .then(function(r){if(!r.ok)throw new Error('http '+r.status);});}
+  var p=first?del():
+    // 再試行時は、その間に別の分附が始まっていないか確かめてから消す
+    dbFetch(DRAFT_DB+'/sid').then(function(r){if(!r.ok)throw new Error('http '+r.status);return r.json();})
+      .then(function(remoteSid){
+        if(sid)return (remoteSid===sid)?del():null;   // 別のsid＝新しい分附なので消さない
+        return remoteSid?null:del();                  // sidの無い旧形式の下書きは消す（無ければ何も起きない）
+      });
+  p.then(_draftOk).catch(function(){_draftFailed('del',function(){_deleteDraftTry(sid,false);});});
 }
 function _normDraft(d){ // 受信下書きを正規化
   if(!d)return null;
@@ -1114,6 +1168,12 @@ function makePinHash(pin){
   catch(e){salt=Date.now().toString(16)+Math.random().toString(16).slice(2,10);}
   return 's2$'+salt+'$'+_pinDerive(salt,String(pin));
 }
+/* 管理者/渉内PINを変更して保存・送信（kind: 'admin' | 'shonai'） */
+function svPin(kind,pin){
+  if(kind==='admin'){ADMIN_PIN=makePinHash(pin);markDirty('pin');}
+  else{SHONAI_PIN=makePinHash(pin);markDirty('shonaiPin');}
+  savePinCache();scheduleDbPush();
+}
 function isPinHash(v){return typeof v==='string'&&v.indexOf('s2$')===0;}
 /* stored が新形式ならハッシュ照合。旧形式なら legacy（平文 or 簡易ハッシュ）と比較 */
 function pinMatch(stored,pin,legacyFn){
@@ -1365,10 +1425,10 @@ function doLogin(){
       var lk=pinLockedSec();if(lk)return fl('しばらく待ってから再入力してください（あと'+lk+'秒）',true);
       if(!ADMIN_PIN&&!SHONAI_PIN)return fl('サーバーに接続してから入ってください',true);
       if(pinMatch(ADMIN_PIN,pin)){
-        pinOk();if(!isPinHash(ADMIN_PIN)){ADMIN_PIN=makePinHash(pin);markDirty('pin');savePinCache();scheduleDbPush();}
+        pinOk();if(!isPinHash(ADMIN_PIN))svPin('admin',pin);
         adminMode=true;paint();fl('管理者モードで入りました');
       }else if(pinMatch(SHONAI_PIN,pin)){
-        pinOk();if(!isPinHash(SHONAI_PIN)){SHONAI_PIN=makePinHash(pin);markDirty('shonaiPin');savePinCache();scheduleDbPush();}
+        pinOk();if(!isPinHash(SHONAI_PIN))svPin('shonai',pin);
         shonaiMode=true;paint();fl('渉内モードで入りました');
       }else{pinFailed();fl('PINが正しくありません',true);}
     },pinFlow);
@@ -1894,14 +1954,14 @@ var CLICK_ID={
   'btn-self-save':function(){doSaveSelf();},
   'btn-export':function(){doExport();},
   'btn-pin-save':function(){
-    if(pinPendingType==='admin'){ADMIN_PIN=makePinHash(pinPendingVal);savePinCache();pinPendingType=null;pinPendingVal='';pinChangedMsg='管理者PINを変更しました';markDirty('pin');scheduleDbPush();paint();setTimeout(function(){pinChangedMsg='';paint();},3000);return;}
+    if(pinPendingType==='admin'){svPin('admin',pinPendingVal);pinPendingType=null;pinPendingVal='';pinChangedMsg='管理者PINを変更しました';paint();setTimeout(function(){pinChangedMsg='';paint();},3000);return;}
     var inp=document.getElementById('inp-pin-new');var v=inp?inp.value.trim():'';
     if(v.length<4)return fl('4文字以上で入力してください',true);
     pinPendingType='admin';pinPendingVal=v;paint();
   },
   'btn-pin-cancel':function(){pinPendingType=null;pinPendingVal='';paint();},
   'btn-shonai-pin-save':function(){
-    if(pinPendingType==='shonai'){SHONAI_PIN=makePinHash(pinPendingVal);savePinCache();pinPendingType=null;pinPendingVal='';pinChangedMsg='渉内PINを変更しました';markDirty('shonaiPin');scheduleDbPush();paint();setTimeout(function(){pinChangedMsg='';paint();},3000);return;}
+    if(pinPendingType==='shonai'){svPin('shonai',pinPendingVal);pinPendingType=null;pinPendingVal='';pinChangedMsg='渉内PINを変更しました';paint();setTimeout(function(){pinChangedMsg='';paint();},3000);return;}
     var inp=document.getElementById('inp-shonai-pin');var v=inp?inp.value.trim():'';
     if(v.length<4)return fl('4文字以上で入力してください',true);
     pinPendingType='shonai';pinPendingVal=v;paint();
@@ -3136,7 +3196,7 @@ function doSaveLeague(){
   }
   if(!wasEdit)GM.push(rec);
   svGM();
-  onPushSuccess(dbDeleteDraft);
+  onPushSuccess(dbDeleteDraft.bind(null,bunSid));
   dbPushNow();
   fl((wasEdit?'試合を更新しました（':'試合を記録しました（')+selfDateF(bunDate)+' '+(bunOpp||'')+'）');
   resetBunState();
@@ -3188,7 +3248,7 @@ function doSaveBun(){
   /* 下書きは「本記録の送信が成功してから」削除する。
      先に消すと、送信前にアプリを閉じられた場合に本記録も下書きも失われる。
      送信が失敗した場合は下書きが残るので、次に誰かが開けば再開できる。 */
-  onPushSuccess(dbDeleteDraft);
+  onPushSuccess(dbDeleteDraft.bind(null,bunSid));
   dbPushNow();
   fl(saved+'名分を記録しました（'+selfDateF(bunDate)+'）');
   resetBunState();paint();
