@@ -282,7 +282,7 @@ button.tap-bounce{animation:tapBounce .16s ease-out}
    ・マイナー : 機能の追加・仕様の変更（パッチは0に戻す）
    ・パッチ : バグ修正・見た目の微調整・名称変更など
    履歴: v1 build1(6/8 端末内版) / v2 build53(6/13 Firebase共有) / v3 build117(7/2 日付ベース記録) / v4 build170(7/15 4タブ構成) / v5 build260(10/6 記録単位の同期・PINハッシュ化) */
-var APP_VERSION='5.0.3',APP_BUILD=263;
+var APP_VERSION='5.0.4',APP_BUILD=264;
 (function(){var el=document.getElementById('app-ver');if(el)el.textContent='v'+APP_VERSION+' (build '+APP_BUILD+')';})();
 var SEED_E=[];
 var SEED_M=[];
@@ -385,7 +385,8 @@ var CLIENT_ID='c'+Date.now().toString(36)+Math.random().toString(36).slice(2,8);
 var _loading=true,_everHadRemoteData=false,_lastKnownRemoteTs=0;
 var _dbTimer=null,_dirty={};               // セクション単位のダーティ集合
 var _draftTimer=null,_draftDirty={},_draftFull=false,_draftMeta=false; // 下書き：列単位/構造変更
-var _draftSent={};   // 名前→最後に自分が送った列の内容。受信がこれと同じなら自分のエコー
+var _draftSent={};   // 名前→最後に自分が送った列の内容。受信がこれと同じなら自分のエコー（1回で消費）
+var _draftInflight={}; // 名前→送信中の数。応答が返るまでは、受信した古い内容で上書きしない
 var _draftBannerDismissed=false,bunDraftRemote=null;
 
 function _dot(col,tip){var el=document.getElementById('sync-dot');if(el){el.style.background=col;el.title=tip;}}
@@ -640,9 +641,12 @@ function dbPush(){
   if(parts.some(function(x){return x.sec==='pin'||x.sec==='shonaiPin';}))savePinCache();
   if(!parts.length){if(_pushDoneCbs.length)_runPushDoneCbs();return;}
   body.t=Date.now();body.by=CLIENT_ID;
+  body.initialized=true;   // 使用中の印。全削除後に、閉じていた端末が古いデータを送り直さないための目印
   _pushing=true;
   _dot('var(--warn)','同期中...');
-  dbFetch(DB,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
+  var json=JSON.stringify(body);
+  // keepalive：アプリを閉じる瞬間の送信も最後まで届ける（ブラウザの上限64KB未満のときだけ）
+  dbFetch(DB,{method:'PATCH',headers:{'Content-Type':'application/json'},body:json,keepalive:json.length<60000})
     .then(function(r){
       if(!r.ok)throw new Error('http '+r.status);
       parts.forEach(function(x){
@@ -680,10 +684,15 @@ function _afterApply(secs){
 }
 function _applyRemote(d){ // 全体スナップショット
   if(d.t)_lastKnownRemoteTs=d.t;
+  // initialized（使用中の印）があれば、無いセクションは「意図的に空にされた」とみなす
+  var inited=!!d.initialized;
   var hit=[];
   _SECS.forEach(function(sec){
     if(sec in d){_mergeSec(sec,d[sec]);hit.push(sec);}
-    else if(_EMPTYABLE.indexOf(sec)>=0){_mergeSec(sec,null);hit.push(sec);}
+    else if(inited||_EMPTYABLE.indexOf(sec)>=0){
+      if(_SEC_KIND[sec]==='whole'&&sec!=='M')return;   // PINは消さない
+      _mergeSec(sec,null);hit.push(sec);
+    }
   });
   _afterApply(hit);
 }
@@ -722,10 +731,11 @@ function dbPull(cb,_retry){
     .then(function(d){
       // 取得中に自分の送信が確定した／送信中 → この結果は送信前の古い状態かもしれないので取り直す
       if((_pushing||gen!==_ackGen)&&(_retry||0)<5){setTimeout(function(){dbPull(cb,(_retry||0)+1);},500);return;}
-      if(_hasData(d)){
-        _applyRemote(d);             // サーバーを正とし、手元で変えた分だけ残す
+      if(_hasData(d)||(d&&d.initialized)){
+        _applyRemote(d);             // サーバーを正とし、手元で変えた分だけ残す（全削除後なら手元も空になる）
       }else if(_hasLocalData()){
-        // サーバーが本当に空：手元のデータを送り直す（PUTではなくPATCHなので下書き等は消さない）
+        // サーバーが本当に空（使用中の印も無い＝DBごと消えた）：手元のデータを送り直す
+        // （PUTではなくPATCHなので下書き等は消さない）
         _SECS.forEach(function(sec){_base[sec]={};});_saveBase();
         markAllDirty();scheduleDbPush();
       }
@@ -767,7 +777,7 @@ function _dbListenWith(tok){
         var p=JSON.parse(e.data);var path=p&&p.path;var d=p&&p.data;
         if(_isDraftPath(path))return;                     // 下書きは専用リスナーが処理（本体を取り直さない）
         if(path==='/'||!path){
-          if(!_hasData(d))return;                          // 空の全体は無視（誤消去防止）
+          if(!_hasData(d)&&!(d&&d.initialized))return;     // 印も無い空の全体は無視（誤消去防止）
           _applyRemote(d);                                 // 三者比較なので自分の書き込みが混ざっていても安全
         }else _applyPath(path,d);                          // 1件・1セクション単位の書き込み
         _dot('var(--good)','同期済み');
@@ -848,14 +858,15 @@ function _flushDraft(){
     if(!bunSid)bunSid='s'+Date.now().toString(36)+Math.random().toString(36).slice(2,6);
     Object.keys(bunData).forEach(function(nm){_draftSent[nm]=_colSig(bunData[nm]);});
     var payload=JSON.stringify(_buildDraftPayload());
-    var newSid=bunSid;
+    var newSid=bunSid,allNames=Object.keys(bunData);
+    _draftInfl(allNames,1);
     _draftChain=_draftChain.then(function(){
       return dbFetch(DRAFT_DB,{method:'PUT',headers:{'Content-Type':'application/json'},body:payload})
         .then(function(r){if(!r.ok)throw new Error('http '+r.status);_draftOkSid=newSid;_draftOk();});
     }).catch(function(){
       // 作成に失敗：入力は残したまま、作成からやり直す
       if(bunSid===newSid){_draftFull=true;_draftFailed('flush',_flushDraft);}
-    });
+    }).then(function(){_draftInfl(allNames,-1);});
     return;
   }
   var names=Object.keys(_draftDirty);
@@ -868,9 +879,13 @@ function _flushDraft(){
     body.tate=bunTate;body.tateList=bunTateList;body.order=bunOrder||null;
     body.lineup=_isEmptyVal(bunLineup)?null:bunLineup;body.opp=bunOpp||null;body.oppHits=bunOppHits||null;
     body.first=bunFirst||null;body.venue=bunVenue||null;body.kind=bunKind||null;body.final=bunFinal||null;body.editId=lgEditId||null;
+    body.kyosha={te:bunKyo.te||{},hon:bunKyo.hon||{}};   // 競射（_buildDraftPayload と項目をそろえること）
   }
   names=names.filter(_bunColValid);   // 今の分附に属さない列は送らない
+  /* 【重要】'data/名前' という「パス指定」で送ること。body.data={名前:…} のように
+     入れ子にすると、他の端末が入力中の列まで丸ごと上書きして消してしまう。書き換え禁止。 */
   names.forEach(function(nm){body['data/'+nm]=bunData[nm]||null;_draftSent[nm]=_colSig(bunData[nm]);}); // 変更列のみ深いPATCH
+  _draftInfl(names,1);
   var mySid=bunSid;
   _draftChain=_draftChain.then(function(){
     // 送る前に、サーバーの下書きが自分の分附のままか確かめる（sidのない古い下書きは確かめない）
@@ -893,7 +908,10 @@ function _flushDraft(){
   }).catch(function(){
     names.forEach(function(nm){_draftDirty[nm]=true;});if(meta)_draftMeta=true;
     if(bunSid===mySid)_draftFailed('flush',_flushDraft);
-  });
+  }).then(function(){_draftInfl(names,-1);});
+}
+function _draftInfl(names,dlt){
+  names.forEach(function(nm){var n=(_draftInflight[nm]||0)+dlt;if(n>0)_draftInflight[nm]=n;else delete _draftInflight[nm];});
 }
 /* 下書きの削除。sid: 消したい分附のsid（記録後は入力状態が先に初期化されるので呼び出し時に渡す） */
 function dbDeleteDraft(sid){
@@ -901,19 +919,28 @@ function dbDeleteDraft(sid){
   _draftFull=false;_draftMeta=false;_draftDirty={};_draftSent={};
   if(_draftRetry.flush){clearTimeout(_draftRetry.flush);_draftRetry.flush=null;}
   bunDraftRemote=null;
-  _deleteDraftTry(sid,true);
+  _deleteDraftTry(sid);
 }
-function _deleteDraftTry(sid,first){
+/* 毎回、消したい分附の下書きかを確かめてから消す（その間に別の端末が始めた分附を消さない） */
+var KDRDEL='kyudo_draftdel_v1';   // 記録後の下書き削除の予約（アプリを閉じても次回起動時に実行）
+function _deleteDraftTry(sid){
   function del(){return dbFetch(DRAFT_DB,{method:'PUT',headers:{'Content-Type':'application/json'},body:'null'})
     .then(function(r){if(!r.ok)throw new Error('http '+r.status);});}
-  var p=first?del():
-    // 再試行時は、その間に別の分附が始まっていないか確かめてから消す
-    dbFetch(DRAFT_DB+'/sid').then(function(r){if(!r.ok)throw new Error('http '+r.status);return r.json();})
-      .then(function(remoteSid){
-        if(sid)return (remoteSid===sid)?del():null;   // 別のsid＝新しい分附なので消さない
-        return remoteSid?null:del();                  // sidの無い旧形式の下書きは消す（無ければ何も起きない）
-      });
-  p.then(_draftOk).catch(function(){_draftFailed('del',function(){_deleteDraftTry(sid,false);});});
+  dbFetch(DRAFT_DB+'/sid').then(function(r){if(!r.ok)throw new Error('http '+r.status);return r.json();})
+    .then(function(remoteSid){
+      if(sid)return (remoteSid===sid)?del():null;   // 別のsid＝新しい分附なので消さない
+      return remoteSid?null:del();                  // sidの無い旧形式の下書きは消す（無ければ何も起きない）
+    })
+    .then(function(){
+      try{if(localStorage.getItem(KDRDEL)===sid)localStorage.removeItem(KDRDEL);}catch(e){}
+      _draftOk();
+    })
+    .catch(function(){_draftFailed('del',function(){_deleteDraftTry(sid);});});
+}
+/* 記録後：本記録の送信が成功してから下書きを消す。予約は端末にも残す */
+function _queueDraftDelete(sid){
+  try{localStorage.setItem(KDRDEL,sid||'');}catch(e){}
+  onPushSuccess(dbDeleteDraft.bind(null,sid||''));
 }
 function _normDraft(d){ // 受信下書きを正規化
   if(!d)return null;
@@ -968,8 +995,10 @@ function _applyDraftCol(nm,col){
   if(!bunDraftRemote)bunDraftRemote={};
   if(!bunDraftRemote.data)bunDraftRemote.data={};
   bunDraftRemote.data[nm]=col;
-  if(_draftDirty[nm])return false;
-  if(_draftSent[nm]===_colSig(col))return false;
+  if(_draftDirty[nm]||_draftInflight[nm])return false;   // 未送信・送信中の列は手元が新しい
+  var sig=_colSig(col),mine=(_draftSent[nm]===sig);
+  delete _draftSent[nm];                                   // 「次に返ってくる1回分」として一度だけ使う
+  if(mine)return false;
   if(tab==='input'&&bunStep==='input'){bunData[nm]=col;return true;}
   return false;
 }
@@ -1047,6 +1076,7 @@ function _onDraftPatch(e){
   try{
     var p=JSON.parse(e.data),path=p&&p.path,d=p&&p.data;
     if(!d||typeof d!=='object')return;
+    if(d.by===CLIENT_ID)return;   // 自分の送信の戻り（遅れて届いた古い内容で表示を戻さない）
     if(!bunDraftRemote){dbPullDraft(_refreshDraftAfterPull);return;} // 手元にリモート像が無ければ取り直す
     var base=(path==='/'||!path)?'':path.replace(/^\//,'');
     var unknown=false;
@@ -1502,6 +1532,8 @@ function load(){
     if(localWasEmpty&&!wasOffline)saveLocal(['S','M','Meta']);
     // 前回送れなかった変更（オフライン中の入力など）があれば送る。変わっていないキーは送られない
     markAllDirty();scheduleDbPush();
+    // 前回、記録後に下書きを消す前にアプリが閉じられていたら、送信の成功後に消す
+    try{var pd=localStorage.getItem(KDRDEL);if(pd!==null)onPushSuccess(function(){_deleteDraftTry(pd);});}catch(e){}
     var ms2=getMo();if(ms2.length)mo=ms2[0];
     var ss2=getSessKeys();if(ss2.length)sesKey=ss2[0];
     dbPullDraft(function(){paint();});
@@ -1742,7 +1774,7 @@ function conFadeIfScreenChanged(el){
   if(cur.tab!==prev.tab)cls=hasFixed?'con-fade':'con-slide';
   else if(cur.branch===prev.branch&&cur.depth!==prev.depth)cls=hasFixed?'con-fade':(cur.depth>prev.depth?'con-fwd':'con-back');
   if(!cls)return;
-  void el.offsetWidth;
+  void el.offsetWidth;   // 【消さないこと】アニメーションをやり直させるための処理（何もしていないように見えるが必要）
   el.classList.add(cls);
   clearTimeout(_conAnimTimer);
   _conAnimTimer=setTimeout(function(){el.classList.remove('con-fade','con-slide','con-fwd','con-back');},400);
@@ -2032,14 +2064,14 @@ var INPUT_ID={
   'pen-note':function(el){penForm.note=el.value;},
   'ef-date':function(){},
   'lg-opp':function(el){
-    bunOpp=el.value;
+    bunOpp=el.value;if(bunSid)scheduleDbPushDraft();
     // paint()すると入力欄が作り直されてキーボードが閉じるので、ボタンの状態だけ切り替える
     var b=document.getElementById('btn-lg-next-lineup');
     if(b){b.disabled=!bunOpp;b.style.opacity=bunOpp?'':'0.45';}
   },
-  'lg-date':function(el){if(!el.value)return;bunDate=el.value;bunD=bunDate.slice(0,7);},
+  'lg-date':function(el){if(!el.value)return;bunDate=el.value;bunD=bunDate.slice(0,7);if(bunSid)scheduleDbPushDraft();},
   'lg-opphits':function(el){
-    bunOppHits=el.value;
+    bunOppHits=el.value;if(bunSid)scheduleDbPushDraft();
     // ここでpaint()すると入力欄が作り直されてキーボードが閉じるので、表示だけ差し替える
     var tot=lgTotals({data:bunData});
     var n=parseInt(bunOppHits,10);
@@ -2089,7 +2121,7 @@ var CLICK_ATTR=[
     if(!bunKyo[kind][k])bunKyo[kind][k]=[];
     var cur=bunKyo[kind][k][i];
     bunKyo[kind][k][i]=(cur==null)?true:(cur===true?false:null);
-    paint();
+    paint();scheduleDbPushDraft();
   }],
   /* ラジオはlabelで包んでいるので、label自身のclickと転送されたinputのclickが
      二重に来ることがある。同じ値なら何もしないで抜ける。 */
@@ -2204,9 +2236,17 @@ function initDelegation(){
        手元で変えた分は三者比較で残るので上書きされない。 */
     if(_loading)return;
     if(pendingCount())dbPushNow();
-    if(!_es||_es.readyState===2){dbListen();dbListenDraft();}
+    if(!_es||_es.readyState===2)dbListen();
+    if(!_esDraft||_esDraft.readyState===2)dbListenDraft();
     dbPull(_repaintUnlessBun);
-    dbPullDraft(function(){_repaintUnlessBun();});
+    // 入力中なら、他の端末で進んだ下書きを入力画面にも反映する
+    dbPullDraft(function(){if(tab==='input'&&bunStep==='input')_refreshDraftAfterPull();else _repaintUnlessBun();});
+  });
+  /* アプリやタブを閉じるとき（iOSでは visibilitychange が来ないことがある）にも未送信分を送る */
+  window.addEventListener('pagehide',function(){
+    if(_loading)return;
+    if(pendingCount())dbPushNow();
+    if(_draftTimer)_flushDraft();
   });
   document.addEventListener('click',tapDispatch);
   document.addEventListener('change',function(ev){dispatch(ev,CHANGE_ID,CHANGE_ATTR);});
@@ -3196,7 +3236,7 @@ function doSaveLeague(){
   }
   if(!wasEdit)GM.push(rec);
   svGM();
-  onPushSuccess(dbDeleteDraft.bind(null,bunSid));
+  _queueDraftDelete(bunSid);
   dbPushNow();
   fl((wasEdit?'試合を更新しました（':'試合を記録しました（')+selfDateF(bunDate)+' '+(bunOpp||'')+'）');
   resetBunState();
@@ -3248,7 +3288,7 @@ function doSaveBun(){
   /* 下書きは「本記録の送信が成功してから」削除する。
      先に消すと、送信前にアプリを閉じられた場合に本記録も下書きも失われる。
      送信が失敗した場合は下書きが残るので、次に誰かが開けば再開できる。 */
-  onPushSuccess(dbDeleteDraft.bind(null,bunSid));
+  _queueDraftDelete(bunSid);
   dbPushNow();
   fl(saved+'名分を記録しました（'+selfDateF(bunDate)+'）');
   resetBunState();paint();
