@@ -282,7 +282,7 @@ button.tap-bounce{animation:tapBounce .16s ease-out}
    ・マイナー : 機能の追加・仕様の変更（パッチは0に戻す）
    ・パッチ : バグ修正・見た目の微調整・名称変更など
    履歴: v1 build1(6/8 端末内版) / v2 build53(6/13 Firebase共有) / v3 build117(7/2 日付ベース記録) / v4 build170(7/15 4タブ構成) / v5 build260(10/6 記録単位の同期・PINハッシュ化) */
-var APP_VERSION='5.1.0',APP_BUILD=265;
+var APP_VERSION='5.1.1',APP_BUILD=266;
 (function(){var el=document.getElementById('app-ver');if(el)el.textContent='v'+APP_VERSION+' (build '+APP_BUILD+')';})();
 var SEED_E=[];
 var SEED_M=[];
@@ -753,6 +753,15 @@ function hasBunInput(){
     return (bunData[k]||[]).some(function(s){return s!==null;});
   });
 }
+/* 分附入力中でも表のスクロール位置とページ位置を保ったまま描き直す */
+function _repaintKeepScroll(){
+  if(!(tab==='input'&&bunStep==='input')){paint();return;}
+  var w=document.querySelector('.bun-sheet-wrap'),sx=w?w.scrollLeft:0,sy=w?w.scrollTop:0;
+  var py=window.pageYOffset||document.documentElement.scrollTop||0;
+  paint();
+  var nw=document.querySelector('.bun-sheet-wrap');if(nw){nw.scrollLeft=sx;nw.scrollTop=sy;}
+  restorePageScroll(py);
+}
 function _repaintUnlessBun(){if(!(tab==='input'&&hasBunInput()))paint();}
 
 /* 分附の下書き(kyudo/bunDraft)は本体DBの子なので、本体ストリームにも流れてくる。
@@ -821,10 +830,10 @@ function _colSig(col){
   return JSON.stringify(a.map(function(v){return v===undefined?null:v;}));
 }
 function scheduleDbPushDraft(name){
-  if(_loading)return;
   // name省略＝並べ替えなどの構造変更。全体PUTにすると他端末が入力中の列まで
   // 手元の内容で消してしまうので、data以外のキーだけを送るPATCHにする。
   if(name==null)_draftMeta=true; else _draftDirty[name]=true;
+  if(_loading)return;   // 読み込み中は印だけ付けておき、読み込み完了後にまとめて送る
   if(_draftTimer)clearTimeout(_draftTimer);
   _draftTimer=setTimeout(_flushDraft,500);
 }
@@ -1527,6 +1536,10 @@ function load(){
   var ms=getMo();if(ms.length)mo=ms[0];
   var ss=getSessKeys();if(ss.length)sesKey=ss[0];
   paint();
+  /* 進行中の分附は本体データの読み込みを待たずに先に取りに行く。
+     本体（全記録）の取得は重いので、待つと「続きから入力」が出るのが遅れる */
+  dbPullDraft(function(){if(!(tab==='input'&&bunStep==='input'))paint();});
+  dbListenDraft();
   dbPull(function(wasOffline){
     _loading=false;
     if(localWasEmpty&&!wasOffline)saveLocal(['S','M','Meta']);
@@ -1536,9 +1549,10 @@ function load(){
     try{var pd=localStorage.getItem(KDRDEL);if(pd!==null)onPushSuccess(function(){_deleteDraftTry(pd);});}catch(e){}
     var ms2=getMo();if(ms2.length)mo=ms2[0];
     var ss2=getSessKeys();if(ss2.length)sesKey=ss2[0];
-    dbPullDraft(function(){paint();});
     dbListen();
-    dbListenDraft();
+    // 読み込み中に入力した分附のマスをここで送る
+    if(_draftMeta||Object.keys(_draftDirty).length){if(_draftTimer)clearTimeout(_draftTimer);_draftTimer=setTimeout(_flushDraft,500);}
+    _repaintKeepScroll();
   });
 }
 function svS(){saveLocal(['S']);markDirty('S');scheduleDbPush();}
@@ -2391,6 +2405,7 @@ function bunSortByScores(base,scores){
    今の並びを崩さずに一番後ろ＝一番左（配列の先頭）へ足す。
    一度に複数いるときは番号の小さい人が右（既存の列寄り）、後から加わった人ほど左。 */
 function bunAppendNewMembers(key){
+  if(_loading)return;   // 部員・出欠が最新になってから判定する
   var att=A.hasOwnProperty(key)?A[key]:null;
   var add=membersSorted().filter(function(n){
     return bunOrder.indexOf(n)<0&&(!att||att.indexOf(n)>=0);
@@ -3276,6 +3291,7 @@ function _abandonStaleBun(msg){
 /* 列の名前が今の分附に属するか（リーグ戦＝射位キー、正規練＝部員名） */
 function _bunColValid(nm){
   if(isLeagueMode(bunMode))return lgSlots(bunMode).some(function(sl){return sl.key===nm;});
+  if(_loading)return true;   // 部員一覧がまだ最新でないので、読み込み中は列を消さない
   return M.indexOf(nm)>=0;
 }
 function doSaveBun(){
