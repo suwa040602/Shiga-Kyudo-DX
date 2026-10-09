@@ -153,6 +153,18 @@ tbody tr:nth-child(even){background:var(--sec)}
 .bun-tc-empty{background:var(--sf)}
 .bun-tc-hit{background:#e8f3ea;color:var(--good)}
 .bun-tc-miss{background:var(--acc-bg);color:var(--bad)}
+.bun-tc{-webkit-touch-callout:none;-webkit-user-select:none}
+.bun-tc-own{opacity:.35;cursor:default}
+.bun-fix-ov{position:fixed;inset:0;z-index:9000;background:rgba(0,0,0,.18)}
+.bun-fix-menu{position:fixed;width:204px;background:var(--sf);border-radius:12px;box-shadow:0 6px 24px rgba(0,0,0,.25);padding:10px}
+.bun-fix-ttl{font-size:12px;font-weight:700;color:var(--sub);text-align:center;margin-bottom:8px}
+.bun-fix-btns{display:flex;gap:6px}
+.bun-fix-btns button{flex:1;padding:12px 0;font-size:20px;font-weight:800;border:1px solid var(--ln);border-radius:8px;background:var(--sec);color:var(--ink)}
+.bun-fix-btns button[data-v="o"]{color:var(--good)}
+.bun-fix-btns button[data-v="x"]{color:var(--bad)}
+.blg-tbl{width:100%;border-collapse:collapse;font-size:11.5px}
+.blg-tbl td,.blg-tbl th{padding:4px 3px;border-bottom:1px solid var(--ln);text-align:left;white-space:nowrap}
+.blg-fix td{background:#fdf6e3}
 .bun-sep-row td{height:5px;background:var(--sec);border-top:2px dashed var(--ln2);border-bottom:2px dashed var(--ln2);padding:0}
 .bun-name-row td,.bun-name-row th{position:sticky;bottom:0;z-index:3;border-top:2px solid var(--ink);background:var(--sec)}
 .bun-name-cell{text-align:center;vertical-align:top;width:50px;min-width:50px;word-break:keep-all;position:relative;padding-bottom:24px}
@@ -282,7 +294,7 @@ button.tap-bounce{animation:tapBounce .16s ease-out}
    ・マイナー : 機能の追加・仕様の変更（パッチは0に戻す）
    ・パッチ : バグ修正・見た目の微調整・名称変更など
    履歴: v1 build1(6/8 端末内版) / v2 build53(6/13 Firebase共有) / v3 build117(7/2 日付ベース記録) / v4 build170(7/15 4タブ構成) / v5 build260(10/6 記録単位の同期・PINハッシュ化) */
-var APP_VERSION='5.1.1',APP_BUILD=266;
+var APP_VERSION='5.2.0',APP_BUILD=267;
 (function(){var el=document.getElementById('app-ver');if(el)el.textContent='v'+APP_VERSION+' (build '+APP_BUILD+')';})();
 var SEED_E=[];
 var SEED_M=[];
@@ -981,7 +993,7 @@ function _syncBunCellsToDom(){ // スクロール位置を保ったままセル�
       var cell=document.querySelector('[data-bun-name="'+cssAttr(name)+'"][data-bun-idx="'+idx+'"]');
       if(cell){
         updated=true;
-        cell.className='bun-tc'+(s===true?' bun-tc-hit':s===false?' bun-tc-miss':' bun-tc-empty');
+        cell.className=bunCellCls(name,idx,s);
         cell.textContent=s===true?'○':s===false?'✗':'';
       }
     });
@@ -1793,7 +1805,30 @@ function conFadeIfScreenChanged(el){
   clearTimeout(_conAnimTimer);
   _conAnimTimer=setTimeout(function(){el.classList.remove('con-fade','con-slide','con-fwd','con-back');},400);
 }
+/* ===== ログイン必須：マイページにログインしていない端末はログイン画面だけを出す =====
+   管理者・渉内はロゴ5連タップのPINで入れる */
+function isGated(){return !myMb&&!adminMode&&!shonaiMode;}
+function tGate(){
+  if(_loading)return '<div class="card" style="text-align:center;padding:32px 16px;color:var(--sub);font-size:13px">読み込み中…</div>';
+  return selfLoginCard('ログイン','自分の名前を選び、4桁のPINでログインしてください。初めての人はそのままPINを設定してください。');
+}
 function paint(){
+  // 名簿から消えた部員（退部など）がログインしたままなら自動でログアウト
+  if(!_loading&&myMb&&M.indexOf(myMb)<0){myMb='';svMe();jobSelfMb='';}
+  var _tabsEl=document.getElementById('tabs'),_bellEl=document.getElementById('btn-news-bell');
+  if(isGated()){
+    closeBunFixMenu();
+    if(overlay)overlay='';
+    if(_tabsEl){_tabsEl.innerHTML='';_tabsEl.style.display='none';}
+    if(_bellEl)_bellEl.style.display='none';
+    var _gg=document.getElementById('btn-gear');if(_gg)_gg.style.display='none';
+    document.body.classList.remove('bun-land');window.onscroll=null;window.onresize=null;
+    var _gc=document.getElementById('con');_gc.innerHTML=tGate();_conScreen=null;
+    renderOverlay();bindDynamic();
+    return;
+  }
+  if(_tabsEl)_tabsEl.style.display='';
+  if(_bellEl)_bellEl.style.display='';
   if(tab==='table'&&!adminMode)tab='self'; // ロック解除時の取り残し防止
   if(overlay==='news')markNewsRead();
   paintTabs();
@@ -1833,7 +1868,7 @@ function paint(){
   var _bunInput=(tab==='input'&&bunStep==='input');
   document.body.classList.toggle('bun-land',_bunInput);
   if(_bunInput){var _sw=document.querySelector('.bun-sheet-wrap');if(_sw)_sw.scrollLeft=_sw.scrollWidth;initBunTapFix();setupBunNameBar();}
-  else{window.onscroll=null;window.onresize=null;}
+  else{window.onscroll=null;window.onresize=null;closeBunFixMenu();}
   if(tab==='table'&&tbScope==='match')lgFitSheets();
 }
 /* ---- iOS Safari のダブルタップズーム対策 ----
@@ -1847,7 +1882,11 @@ function initBunTapFix(){
   var wrap=document.querySelector('.bun-sheet-wrap');
   if(!wrap||wrap._tapFix)return;
   wrap._tapFix=true;
-  var sx=0,sy=0,moved=false,tgt=null,multi=false;
+  /* 誤タップ対策：
+     ・指が6px以上動いたらスクロールとみなす
+     ・スクロール中／止まって0.3秒以内に触れたタップは無視（慣性スクロールを止める指で入らないように）
+     ・0.5秒押し続けたら修正メニュー（○・✗・空）を出し、離しても入力しない */
+  var sx=0,sy=0,st=0,moved=false,tgt=null,multi=false,stopper=false,longFired=false,longTimer=null;
   function cellOf(el){
     while(el&&el!==wrap){
       if(el.getAttribute&&el.getAttribute('data-bun-idx')!==null)return el;
@@ -1855,23 +1894,35 @@ function initBunTapFix(){
     }
     return null;
   }
+  function clearLong(){if(longTimer){clearTimeout(longTimer);longTimer=null;}}
   wrap.addEventListener('touchstart',function(e){
+    clearLong();
     if(e.touches.length>1){multi=true;tgt=null;return;}
-    multi=false;moved=false;
+    multi=false;moved=false;longFired=false;
     tgt=cellOf(e.target);
+    st=Date.now();
+    stopper=(st-_bunScrollAt<BUN_SCROLL_GUARD);
     sx=e.touches[0].clientX;sy=e.touches[0].clientY;
+    if(tgt&&!stopper){
+      var el=tgt;
+      longTimer=setTimeout(function(){longTimer=null;if(tgt===el&&!moved&&_bunScrollAt<st){longFired=true;openBunFixMenu(el);}},BUN_LONG_MS);
+    }
   },{passive:true});
   wrap.addEventListener('touchmove',function(e){
     if(!tgt||multi)return;
     var t=e.touches[0];
-    if(Math.abs(t.clientX-sx)>10||Math.abs(t.clientY-sy)>10)moved=true;
+    if(Math.abs(t.clientX-sx)>BUN_MOVE_PX||Math.abs(t.clientY-sy)>BUN_MOVE_PX){moved=true;clearLong();}
   },{passive:true});
   wrap.addEventListener('touchend',function(e){
-    if(multi||!tgt||moved){tgt=null;return;}
+    clearLong();
+    if(multi||!tgt){tgt=null;return;}
     var el=tgt;tgt=null;
-    e.preventDefault();               // ダブルタップ拡大と合成clickを抑止
+    if(moved)return;                                  // スクロールだった（合成clickも出ない）
+    // ここから先は指が動いていないので、ブラウザの合成clickを止めてから判定する
+    if(e.cancelable)e.preventDefault();               // ダブルタップ拡大と合成clickを抑止
     _bunTapAt=Date.now();
-    toggleBunShot(el.getAttribute('data-bun-name'),parseInt(el.getAttribute('data-bun-idx'),10));
+    if(longFired||stopper||_bunScrollAt>=st)return;  // 長押し／スクロールを止めたタップ／押している間に動いた
+    bunCellTap(el,false);
   },{passive:false});
   wrap.addEventListener('touchcancel',function(){tgt=null;},{passive:true});
 }
@@ -1997,6 +2048,7 @@ var CLICK_ID={
   'btn-indiv-official':function(){indivView='official';paint();},
   'btn-indiv-analysis':function(){indivView='analysis';paint();},
   'btn-self-login':function(){doSelfLogin();},
+  'btn-blg-load':function(){blgLoadList();},
   'btn-self-logout':function(){selfLogout();},
   'btn-self-save':function(){doSaveSelf();},
   'btn-export':function(){doExport();},
@@ -2057,6 +2109,7 @@ var CHANGE_ID={
   'sel-indiv':function(el){indivMb=el.value;indivView='official';indivMoExpand='';indivWkExpand='';indivWkLimit=12;paint();},
   'sel-hmb':function(el){histMb=el.value;paint();},
   'self-name':function(el){selfLoginName=el.value;paint();},
+  'blg-onlyfix':function(el){blgOnlyFix=!!el.checked;paint();},
   'job-self-mb':function(el){jobSelfMb=el.value;paint();},
   'job-date':function(el){jobForm.date=el.value;},
   'pen-mb':function(el){penForm.mb=el.value;paint();},
@@ -2106,11 +2159,12 @@ var KEY_ID={
 };
 /* [属性名, ハンドラ(el,ev)]。data-pen-del は data-pen-mb より前（内側優先） */
 var CLICK_ATTR=[
+  ['data-blg-sid',function(el){blgLoad(el.getAttribute('data-blg-sid'));}],
   ['data-tab',function(el){sw(el.getAttribute('data-tab'));}],
   ['data-bun-idx',function(el){
     // touchendで処理済みの直後に合成clickが来ることがあるので二重反転を防ぐ
     if(Date.now()-_bunTapAt<700)return;
-    toggleBunShot(el.getAttribute('data-bun-name'),parseInt(el.getAttribute('data-bun-idx'),10));
+    bunCellTap(el,true);
   }],
   ['data-att-toggle',function(){attOpen=!attOpen;paint();}],
   ['data-lg-per-expand',function(el){var n=el.getAttribute('data-lg-per-expand');lgPerOpen=(lgPerOpen===n)?'':n;paint();}],
@@ -2475,15 +2529,170 @@ function ensureBunData(){
     delete bunData[name];
   });
 }
+/* ===== 分附：自分の列の保護・入力済みマスの固定・誤タップ対策 ===== */
+var BUN_LOCK_MS=3000,BUN_LONG_MS=500,BUN_MOVE_PX=6,BUN_SCROLL_GUARD=300;
+var _bunEditAt={},_bunScrollAt=0,_bunLockHintAt=0;
+/* 自分の的中のマスか（管理者は対象外）。リーグ戦は列＝射位なので、その立目に入っている選手で判定 */
+function bunCellOwn(n,idx){
+  if(adminMode||!myMb)return false;
+  if(isLeagueMode(bunMode)){var a=bunLineup&&bunLineup[n];return !!(a&&a[Math.floor(idx/LG_PER)]===myMb);}
+  return n===myMb;
+}
+function bunCellCls(n,idx,s){
+  return 'bun-tc'+(s===true?' bun-tc-hit':s===false?' bun-tc-miss':' bun-tc-empty')+(bunCellOwn(n,idx)?' bun-tc-own':'');
+}
+/* 入力済みのマスは、この端末で入れてから3秒たつと固定（✗の2回タップと直後の打ち直しは可）。
+   他の端末が入れたマス・開き直した後のマスは最初から固定。直すときは長押しのメニューから */
+function bunCellLocked(n,idx){
+  var s=(bunData[n]||[])[idx];if(s==null)return false;
+  return Date.now()-(_bunEditAt[n+'\u0001'+idx]||0)>=BUN_LOCK_MS;
+}
+function bunCellTap(el,viaClick){
+  var n=el.getAttribute('data-bun-name'),idx=parseInt(el.getAttribute('data-bun-idx'),10);
+  if(bunCellOwn(n,idx))return;
+  if(bunCellLocked(n,idx)){
+    if(viaClick){openBunFixMenu(el);return;}   // マウス操作では長押しの代わりにメニューを出す
+    if(Date.now()-_bunLockHintAt>2500){_bunLockHintAt=Date.now();fl('入力済みのマスは長押しで修正できます');}
+    return;
+  }
+  toggleBunShot(n,idx);
+}
+function closeBunFixMenu(){var o=document.getElementById('bun-fix-ov');if(o&&o.parentNode)o.parentNode.removeChild(o);}
+function openBunFixMenu(cell){
+  var n=cell.getAttribute('data-bun-name'),idx=parseInt(cell.getAttribute('data-bun-idx'),10);
+  if(bunCellOwn(n,idx))return;
+  closeBunFixMenu();
+  try{if(navigator.vibrate)navigator.vibrate(15);}catch(e){}
+  var r=cell.getBoundingClientRect(),W=204,H=96;
+  var vw=window.innerWidth||document.documentElement.clientWidth,vh=window.innerHeight||document.documentElement.clientHeight;
+  var left=Math.max(8,Math.min(vw-W-8,r.left+r.width/2-W/2));
+  var top=r.top-H-8;if(top<8)top=Math.min(vh-H-8,r.bottom+8);
+  var lbl=(isLeagueMode(bunMode)?((bunLineup[n]||[])[Math.floor(idx/LG_PER)]||bunColLabel(n)):n)+'　'+(idx+1)+'射目を修正';
+  var ov=document.createElement('div');ov.id='bun-fix-ov';ov.className='bun-fix-ov';
+  ov.innerHTML='<div class="bun-fix-menu" style="left:'+left+'px;top:'+top+'px">'
+    +'<div class="bun-fix-ttl">'+esc(lbl)+'</div>'
+    +'<div class="bun-fix-btns"><button data-v="o">○</button><button data-v="x">✗</button><button data-v="-" style="font-size:14px">空</button></div></div>';
+  var openedAt=Date.now();
+  ov.addEventListener('click',function(e){
+    e.stopPropagation();
+    if(Date.now()-openedAt<350)return;   // 長押しを離した指で押さないように
+    var b=e.target.closest?e.target.closest('[data-v]'):null;
+    if(b){
+      var c=b.getAttribute('data-v');
+      setBunShot(n,idx,c==='o'?true:c==='x'?false:null);
+      _bunEditAt[n+'\u0001'+idx]=0;   // メニューで直したマスはすぐ固定
+    }else if(e.target.closest&&e.target.closest('.bun-fix-menu'))return;
+    closeBunFixMenu();
+  });
+  document.body.appendChild(ov);
+}
+/* 表・ページのスクロールを記録（慣性スクロールを止めるタップを入力にしないため） */
+document.addEventListener('scroll',function(){_bunScrollAt=Date.now();},{passive:true,capture:true});
+
+/* ===== 分附：変更履歴（どのマスを・いつ・誰が変えたか） =====
+   本体データ（/kyudo）とは別の /bunLog に保存するので、普段の読み込みや同期には含まれない。
+   1件は「時刻|入力者|部員|何射目|前>後」の短い文字列。分附1回で数十KB程度 */
+var LOG_DB='https://shiga-kyudo-dx-default-rtdb.asia-southeast1.firebasedatabase.app/bunLog';
+var _logQ=[],_logTimer=null,_logSeq=0,_logBusy=false;
+function _lv(v){return v===true?'o':v===false?'x':'-';}
+function bunLogPush(name,idx,prev,v){
+  var who=(myMb||'')+(adminMode?'[管理者]':shonaiMode?'[渉内]':'');
+  var mb=isLeagueMode(bunMode)?((bunLineup[name]||[])[Math.floor(idx/LG_PER)]||name):name;
+  var k=Date.now().toString(36)+'-'+('000'+(_logSeq++%1296).toString(36)).slice(-2)+'-'+CLIENT_ID.slice(-4);
+  _logQ.push([k,[Date.now(),who,mb,idx+1,_lv(prev)+'>'+_lv(v)].join('|')]);
+  _logSchedule(1500);
+}
+function _logSchedule(ms){if(_logTimer)clearTimeout(_logTimer);_logTimer=setTimeout(_logFlush,ms);}
+function _logFlush(){
+  _logTimer=null;
+  if(!_logQ.length||_logBusy)return;
+  if(!bunSid){_logSchedule(2000);return;}   // 分附のIDが決まってから送る
+  var batch=_logQ.splice(0,200),body={},sid=bunSid;
+  batch.forEach(function(e){body[e[0]]=e[1];});
+  _logBusy=true;
+  dbFetch(LOG_DB+'/'+sid,{method:'PATCH',body:JSON.stringify(body)})
+    .then(function(r){
+      _logBusy=false;
+      if(r.status===401||r.status===403)return;   // 書き込みが許可されていない：諦める（入力は止めない）
+      if(!r.ok)throw new Error('http '+r.status);
+      if(_logQ.length)_logSchedule(300);
+    })
+    .catch(function(){_logBusy=false;_logQ=batch.concat(_logQ);_logSchedule(8000);});
+}
+/* --- 管理者用の閲覧画面（設定内） --- */
+var blgSids=null,blgSel='',blgRows=null,blgErr='',blgOnlyFix=false;
+function _sidTime(sid){var t=parseInt(String(sid).slice(1,9),36);return isNaN(t)?0:t;}
+function _blgTs(t){var d=new Date(t);return (d.getMonth()+1)+'/'+d.getDate()+' '+('0'+d.getHours()).slice(-2)+':'+('0'+d.getMinutes()).slice(-2);}
+function blgFetch(path,shallow){
+  return authToken().then(function(t){
+    return fetch(LOG_DB+path+'.json?'+(shallow?'shallow=true&':'')+(t?'auth='+encodeURIComponent(t):''));
+  }).then(function(r){
+    if(r.status===401||r.status===403)throw new Error('denied');
+    if(!r.ok)throw new Error('http');
+    return r.json();
+  });
+}
+function blgLoadList(){
+  blgErr='';blgSids=null;blgSel='';blgRows=null;paint();
+  blgFetch('',true).then(function(d){
+    blgSids=Object.keys(d||{}).sort(function(a,b){return _sidTime(b)-_sidTime(a);}).slice(0,20);paint();
+  }).catch(function(e){blgSids=[];blgErr=e&&e.message==='denied'?'データベースのルールで /bunLog の読み書きが許可されていません':'読み込めませんでした（オフライン？）';paint();});
+}
+function blgLoad(sid){
+  blgSel=sid;blgRows=null;blgErr='';paint();
+  blgFetch('/'+sid,false).then(function(d){
+    var ks=Object.keys(d||{}).sort();
+    blgRows=ks.map(function(k){var a=String(d[k]).split('|');return {t:+a[0],u:a[1]||'',m:a[2]||'',i:a[3]||'',c:a[4]||''};}).reverse();
+    paint();
+  }).catch(function(){blgRows=[];blgErr='読み込めませんでした';paint();});
+}
+function tBunLogCard(){
+  var o='<div class="card mb10"><p style="margin:0 0 6px;font-size:14px;font-weight:700">分附の変更履歴</p>'
+    +'<p style="margin:0 0 8px;font-size:11.5px;color:var(--sub)">入力中の分附で、どのマスを・いつ・誰が変えたかを確認できます。黄色は入力済みのマスを書き換えた操作です。</p>';
+  if(blgSids===null&&!blgErr)return o+'<button id="btn-blg-load" class="btn bh" style="margin-top:0;padding:8px 14px;font-size:12px">履歴を読み込む</button></div>';
+  if(blgErr)o+='<div style="font-size:12px;color:var(--bad);margin-bottom:8px">'+esc(blgErr)+'</div>';
+  if(blgSids&&!blgSids.length&&!blgErr)o+='<div class="emp" style="padding:8px 0">履歴はまだありません</div>';
+  if(blgSids&&blgSids.length){
+    o+='<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px">'+blgSids.map(function(sid){
+      return '<button class="btn '+(sid===blgSel?'prim':'bh')+'" data-blg-sid="'+esc(sid)+'" style="margin-top:0;padding:6px 10px;font-size:12px">'+_blgTs(_sidTime(sid))+' 開始</button>';
+    }).join('')+'</div>';
+  }
+  if(blgSel){
+    if(blgRows===null)o+='<div class="emp" style="padding:8px 0">読み込み中…</div>';
+    else{
+      var rows=blgRows.filter(function(r){return !blgOnlyFix||r.c.charAt(0)!=='-';});
+      o+='<label style="display:flex;align-items:center;gap:6px;font-size:12px;margin:0 0 6px"><input type="checkbox" id="blg-onlyfix"'+(blgOnlyFix?' checked':'')+' style="width:auto;margin:0">書き換えのみ表示</label>';
+      var sym={o:'○',x:'✗','-':'空'};
+      o+='<div style="max-height:360px;overflow:auto"><table class="blg-tbl"><thead><tr><th>時刻</th><th>入力者</th><th>部員</th><th>射</th><th>変更</th></tr></thead><tbody>'
+        +rows.map(function(r){
+          var c=r.c.split('>'),fix=c[0]!=='-';
+          var d=new Date(r.t),tm=('0'+d.getHours()).slice(-2)+':'+('0'+d.getMinutes()).slice(-2)+':'+('0'+d.getSeconds()).slice(-2);
+          return '<tr'+(fix?' class="blg-fix"':'')+'><td>'+tm+'</td><td>'+esc(r.u||'?')+'</td><td>'+esc(r.m)+'</td><td>'+esc(r.i)+'</td><td>'+(sym[c[0]]||'')+'→'+(sym[c[1]]||'')+'</td></tr>';
+        }).join('')+'</tbody></table></div>'
+        +(rows.length?'':'<div class="emp" style="padding:8px 0">該当なし</div>');
+    }
+  }
+  return o+'</div>';
+}
+
 function toggleBunShot(name,idx){
+  var cur=(bunData[name]||[])[idx];if(cur===undefined)cur=null;
+  setBunShot(name,idx,cur===null?true:cur===true?false:null);
+}
+/* マスの値を変える唯一の入口。自分の列（管理者以外）は変えられない。変更は履歴に残す */
+function setBunShot(name,idx,v){
+  if(bunCellOwn(name,idx))return;
   if(!bunData[name])bunData[name]=new Array(bunShotCount()).fill(null);
-  var cur=bunData[name][idx];
-  bunData[name][idx]=cur===null?true:cur===true?false:null;
-  var s=bunData[name][idx];
+  var prev=bunData[name][idx];if(prev===undefined)prev=null;
+  if(prev===v)return;
+  bunData[name][idx]=v;
+  _bunEditAt[name+'\u0001'+idx]=Date.now();
+  bunLogPush(name,idx,prev,v);
+  var s=v;
   // セルだけ更新（スクロール位置を保つ）
   var cell=document.querySelector('[data-bun-name="'+cssAttr(name)+'"][data-bun-idx="'+idx+'"]');
   if(cell){
-    cell.className='bun-tc'+(s===true?' bun-tc-hit':s===false?' bun-tc-miss':' bun-tc-empty');
+    cell.className=bunCellCls(name,idx,s);
     cell.textContent=s===true?'○':s===false?'✗':'';
     _bunRepaint(cell);
   }
@@ -2964,7 +3173,7 @@ function tBun(){
       bodyRows+='<tr class="bun-row">'
         +members.map(function(n,ci){
           var s=(bunData[n]||[])[idx];
-          var cls='bun-tc'+(s===true?' bun-tc-hit':s===false?' bun-tc-miss':' bun-tc-empty');
+          var cls=bunCellCls(n,idx,s);
           return _pfx(ci,_isBlk?'blk':'row',_b)+'<td class="'+cls+'" data-bun-name="'+esc(n)+'" data-bun-idx="'+idx+'">'+(s===true?'○':s===false?'✗':'')+'</td>';
         }).join('')
         +'<th class="bun-rn-r">'+shotNum+'</th></tr>';
@@ -3042,7 +3251,7 @@ function tBun(){
       rBodyRows+='<tr class="bun-row">'
         +tateMs.map(function(n){
           var s=(bunData[n]||[])[idx];
-          var cls='bun-tc'+(s===true?' bun-tc-hit':s===false?' bun-tc-miss':' bun-tc-empty');
+          var cls=bunCellCls(n,idx,s);
           return '<td class="'+cls+'" data-bun-name="'+esc(n)+'" data-bun-idx="'+idx+'">'+(s===true?'○':s===false?'✗':'')+'</td>';
         }).join('')
         +'<th class="bun-rn-r">'+shotNum+'</th></tr>';
@@ -5184,6 +5393,7 @@ function selfDateS(d){if(!d)return '';var p=d.split('-');return p.length===3?(pa
 function selfDateF(d){if(!d)return '';var p=d.split('-');return p.length===3?(p[0]+'年'+parseInt(p[1],10)+'月'+parseInt(p[2],10)+'日'):d;}
 /* --- ログイン / PIN --- */
 function doSelfLogin(){
+  if(_loading){fl('読み込み中です。少し待ってからもう一度押してください',true);return;}   // PIN情報が届く前に「未設定」と誤認して上書きしないように
   var name=selfLoginName;
   var el=document.getElementById('self-pin');
   var pin=el?(el.value||'').trim():'';
@@ -5224,33 +5434,38 @@ function selfStatBox(label,val){
   return '<div style="flex:1"><div style="font-size:20px;font-weight:800">'+val+'</div>'
     +'<div style="font-size:10.5px;color:var(--sub)">'+label+'</div></div>';
 }
+/* ログインの入力欄（ログイン画面とマイページで共用） */
+function selfLoginCard(title,desc){
+  var opts='<option value="">-- 名前を選択 --</option>';
+  membersSorted().forEach(function(m){
+    var mt=Meta[m]||{};var prefix=mt.num?mt.num+'. ':'';
+    opts+='<option value="'+esc(m)+'"'+(selfLoginName===m?' selected':'')+'>'+prefix+esc(m)+'</option>';
+  });
+  var out='<div class="card">'
+    +'<p style="margin:0 0 4px;font-size:15px;font-weight:700">'+esc(title)+'</p>'
+    +'<p style="margin:0 0 2px;font-size:11.5px;color:var(--sub)">'+esc(desc)+'</p>'
+    +(M.length?'':'<div style="font-size:12px;color:var(--bad);margin-top:8px">部員の情報を読み込めませんでした。電波のある場所で開き直してください。</div>')
+    +'<label>氏名</label>'
+    +'<select id="self-name">'+opts+'</select>';
+  if(selfLoginName){
+    if(Pins[selfLoginName]){
+      out+='<label>PIN（4桁）</label>'
+        +'<input id="self-pin" type="password" inputmode="numeric" maxlength="4" placeholder="****">'
+        +'<button id="btn-self-login" class="btn prim">ログイン</button>';
+    }else{
+      out+='<div class="fl bi" style="display:block;margin:11px 0 0;padding:8px 11px;border-radius:8px">この名前はまだPIN未設定です。新しいPINを決めてください。</div>'
+        +'<label>新しいPIN（4桁の数字）</label>'
+        +'<input id="self-pin" type="password" inputmode="numeric" maxlength="4" placeholder="****">'
+        +'<button id="btn-self-login" class="btn prim">PINを設定して開始</button>';
+    }
+  }
+  return out+'</div>';
+}
 function tSelf(page){
   var isPrac=page==='prac';
   if(!myMb){
-    var sorted=membersSorted();
-    var opts='<option value="">-- 名前を選択 --</option>';
-    sorted.forEach(function(m){
-      var mt=Meta[m]||{};var prefix=mt.num?mt.num+'. ':'';
-      opts+='<option value="'+esc(m)+'"'+(selfLoginName===m?' selected':'')+'>'+prefix+esc(m)+'</option>';
-    });
-    var out='<div class="card">'
-      +'<p style="margin:0 0 4px;font-size:15px;font-weight:700">'+(isPrac?'自主練':'マイページ')+' ログイン</p>'
-      +'<p style="margin:0 0 2px;font-size:11.5px;color:var(--sub)">自分の名前を選び、4桁のPINでログインします。初めての人はそのままPINを設定してください。</p>'
-      +'<label>氏名</label>'
-      +'<select id="self-name">'+opts+'</select>';
-    if(selfLoginName){
-      if(Pins[selfLoginName]){
-        out+='<label>PIN（4桁）</label>'
-          +'<input id="self-pin" type="password" inputmode="numeric" maxlength="4" placeholder="****">'
-          +'<button id="btn-self-login" class="btn prim">ログイン</button>';
-      }else{
-        out+='<div class="fl bi" style="display:block;margin:11px 0 0;padding:8px 11px;border-radius:8px">この名前はまだPIN未設定です。新しいPINを決めてください。</div>'
-          +'<label>新しいPIN（4桁の数字）</label>'
-          +'<input id="self-pin" type="password" inputmode="numeric" maxlength="4" placeholder="****">'
-          +'<button id="btn-self-login" class="btn prim">PINを設定して開始</button>';
-      }
-    }
-    out+='</div>';
+    // ここに来るのは管理者・渉内でマイページ未ログインのときだけ（一般部員はログイン画面で止まる）
+    var out=selfLoginCard((isPrac?'自主練':'マイページ')+' ログイン','自分の名前を選び、4桁のPINでログインします。初めての人はそのままPINを設定してください。');
     if(adminMode){
       out+='<div class="card" style="margin-top:12px"><p style="margin:0 0 6px;font-size:12px;font-weight:700;color:var(--sub)">PINリセット（管理者）</p>';
       var setNames=Object.keys(Pins);
@@ -5520,7 +5735,7 @@ function tSettingsPanel(){
       +'<button id="btn-lock-now" class="btn bh" style="margin-top:0;padding:8px 16px">ロックする</button>'
     +'</div></div>';
   if(!adminMode)return head+'<div class="emp" style="padding:28px 0">設定項目は管理者のみ利用できます。</div>';
-  return head+tSt();
+  return head+tBunLogCard()+tSt();
 }
 
 /* ===== §21 設定・部員管理 ===== */
