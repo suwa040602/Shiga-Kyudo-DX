@@ -154,7 +154,6 @@ tbody tr:nth-child(even){background:var(--sec)}
 .bun-tc-hit{background:#e8f3ea;color:var(--good)}
 .bun-tc-miss{background:var(--acc-bg);color:var(--bad)}
 .bun-tc{-webkit-touch-callout:none;-webkit-user-select:none}
-.bun-tc-own{cursor:default}
 .bun-fix-ov{position:fixed;inset:0;z-index:9000;background:rgba(0,0,0,.18)}
 .bun-fix-ov,.bun-fix-ov *{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
 .bun-fix-menu{position:fixed;width:204px;background:var(--sf);border-radius:12px;box-shadow:0 6px 24px rgba(0,0,0,.25);padding:10px}
@@ -166,6 +165,7 @@ tbody tr:nth-child(even){background:var(--sec)}
 .blg-tbl{width:100%;border-collapse:collapse;font-size:11.5px}
 .blg-tbl td,.blg-tbl th{padding:4px 3px;border-bottom:1px solid var(--ln);text-align:left;white-space:nowrap}
 .blg-fix td{background:#fdf6e3}
+.blg-self td{background:#fbe9e9;color:var(--bad);font-weight:700}
 .bun-sep-row td{height:5px;background:var(--sec);border-top:2px dashed var(--ln2);border-bottom:2px dashed var(--ln2);padding:0}
 .bun-name-row td,.bun-name-row th{position:sticky;bottom:0;z-index:3;border-top:2px solid var(--ink);background:var(--sec)}
 .bun-name-cell{text-align:center;vertical-align:top;width:50px;min-width:50px;word-break:keep-all;position:relative;padding-bottom:24px}
@@ -295,7 +295,7 @@ button.tap-bounce{animation:tapBounce .16s ease-out}
    ・マイナー : 機能の追加・仕様の変更（パッチは0に戻す）
    ・パッチ : バグ修正・見た目の微調整・名称変更など
    履歴: v1 build1(6/8 端末内版) / v2 build53(6/13 Firebase共有) / v3 build117(7/2 日付ベース記録) / v4 build170(7/15 4タブ構成) / v5 build260(10/6 記録単位の同期・PINハッシュ化) */
-var APP_VERSION='5.2.1',APP_BUILD=268;
+var APP_VERSION='5.2.2',APP_BUILD=269;
 (function(){var el=document.getElementById('app-ver');if(el)el.textContent='v'+APP_VERSION+' (build '+APP_BUILD+')';})();
 var SEED_E=[];
 var SEED_M=[];
@@ -2112,6 +2112,7 @@ var CHANGE_ID={
   'sel-hmb':function(el){histMb=el.value;paint();},
   'self-name':function(el){selfLoginName=el.value;paint();},
   'blg-onlyfix':function(el){blgOnlyFix=!!el.checked;paint();},
+  'blg-onlyself':function(el){blgOnlySelf=!!el.checked;paint();},
   'job-self-mb':function(el){jobSelfMb=el.value;paint();},
   'job-date':function(el){jobForm.date=el.value;},
   'pen-mb':function(el){penForm.mb=el.value;paint();},
@@ -2531,17 +2532,11 @@ function ensureBunData(){
     delete bunData[name];
   });
 }
-/* ===== 分附：自分の列の保護・入力済みマスの固定・誤タップ対策 ===== */
+/* ===== 分附：入力済みマスの固定・誤タップ対策 ===== */
 var BUN_LOCK_MS=3000,BUN_LONG_MS=500,BUN_MOVE_PX=6,BUN_SCROLL_GUARD=200;
 var _bunEditAt={},_bunScrollAt=0,_bunLockHintAt=0;
-/* 自分の的中のマスか（管理者は対象外）。リーグ戦は列＝射位なので、その立目に入っている選手で判定 */
-function bunCellOwn(n,idx){
-  if(adminMode||!myMb)return false;
-  if(isLeagueMode(bunMode)){var a=bunLineup&&bunLineup[n];return !!(a&&a[Math.floor(idx/LG_PER)]===myMb);}
-  return n===myMb;
-}
 function bunCellCls(n,idx,s){
-  return 'bun-tc'+(s===true?' bun-tc-hit':s===false?' bun-tc-miss':' bun-tc-empty')+(bunCellOwn(n,idx)?' bun-tc-own':'');
+  return 'bun-tc'+(s===true?' bun-tc-hit':s===false?' bun-tc-miss':' bun-tc-empty');
 }
 /* 入力済みのマスは、この端末で入れてから3秒たつと固定（✗の2回タップと直後の打ち直しは可）。
    他の端末が入れたマス・開き直した後のマスは最初から固定。直すときは長押しのメニューから */
@@ -2551,7 +2546,6 @@ function bunCellLocked(n,idx){
 }
 function bunCellTap(el,viaClick){
   var n=el.getAttribute('data-bun-name'),idx=parseInt(el.getAttribute('data-bun-idx'),10);
-  if(bunCellOwn(n,idx))return;
   if(bunCellLocked(n,idx)){
     if(viaClick){openBunFixMenu(el);return;}   // マウス操作では長押しの代わりにメニューを出す
     if(Date.now()-_bunLockHintAt>2500){_bunLockHintAt=Date.now();fl('入力済みのマスは長押しで修正できます');}
@@ -2562,7 +2556,6 @@ function bunCellTap(el,viaClick){
 function closeBunFixMenu(){var o=document.getElementById('bun-fix-ov');if(o&&o.parentNode)o.parentNode.removeChild(o);}
 function openBunFixMenu(cell){
   var n=cell.getAttribute('data-bun-name'),idx=parseInt(cell.getAttribute('data-bun-idx'),10);
-  if(bunCellOwn(n,idx))return;
   closeBunFixMenu();
   try{if(navigator.vibrate)navigator.vibrate(15);}catch(e){}
   var r=cell.getBoundingClientRect(),W=204,H=96;
@@ -2622,7 +2615,7 @@ function _logFlush(){
     .catch(function(){_logBusy=false;_logQ=batch.concat(_logQ);_logSchedule(8000);});
 }
 /* --- 管理者用の閲覧画面（設定内） --- */
-var blgSids=null,blgSel='',blgRows=null,blgErr='',blgOnlyFix=false;
+var blgSids=null,blgSel='',blgRows=null,blgErr='',blgOnlyFix=false,blgOnlySelf=false;
 function _sidTime(sid){var t=parseInt(String(sid).slice(1,9),36);return isNaN(t)?0:t;}
 function _blgTs(t){var d=new Date(t);return (d.getMonth()+1)+'/'+d.getDate()+' '+('0'+d.getHours()).slice(-2)+':'+('0'+d.getMinutes()).slice(-2);}
 function blgFetch(path,shallow){
@@ -2650,7 +2643,7 @@ function blgLoad(sid){
 }
 function tBunLogCard(){
   var o='<div class="card mb10"><p style="margin:0 0 6px;font-size:14px;font-weight:700">分附の変更履歴</p>'
-    +'<p style="margin:0 0 8px;font-size:11.5px;color:var(--sub)">入力中の分附で、どのマスを・いつ・誰が変えたかを確認できます。黄色は入力済みのマスを書き換えた操作です。</p>';
+    +'<p style="margin:0 0 8px;font-size:11.5px;color:var(--sub)">入力中の分附で、どのマスを・いつ・誰が変えたかを確認できます。赤は本人が自分のマスを変えた操作、黄色は入力済みのマスを書き換えた操作です。</p>';
   if(blgSids===null&&!blgErr)return o+'<button id="btn-blg-load" class="btn bh" style="margin-top:0;padding:8px 14px;font-size:12px">履歴を読み込む</button></div>';
   if(blgErr)o+='<div style="font-size:12px;color:var(--bad);margin-bottom:8px">'+esc(blgErr)+'</div>';
   if(blgSids&&!blgSids.length&&!blgErr)o+='<div class="emp" style="padding:8px 0">履歴はまだありません</div>';
@@ -2662,14 +2655,16 @@ function tBunLogCard(){
   if(blgSel){
     if(blgRows===null)o+='<div class="emp" style="padding:8px 0">読み込み中…</div>';
     else{
-      var rows=blgRows.filter(function(r){return !blgOnlyFix||r.c.charAt(0)!=='-';});
-      o+='<label style="display:flex;align-items:center;gap:6px;font-size:12px;margin:0 0 6px"><input type="checkbox" id="blg-onlyfix"'+(blgOnlyFix?' checked':'')+' style="width:auto;margin:0">書き換えのみ表示</label>';
+      var _self=function(r){return r.u.replace(/\[.*\]$/,'')===r.m;};
+      var rows=blgRows.filter(function(r){return (!blgOnlyFix||r.c.charAt(0)!=='-')&&(!blgOnlySelf||_self(r));});
+      o+='<label style="display:flex;align-items:center;gap:6px;font-size:12px;margin:0 0 6px"><input type="checkbox" id="blg-onlyfix"'+(blgOnlyFix?' checked':'')+' style="width:auto;margin:0">書き換えのみ表示</label>'
+        +'<label style="display:flex;align-items:center;gap:6px;font-size:12px;margin:0 0 6px"><input type="checkbox" id="blg-onlyself"'+(blgOnlySelf?' checked':'')+' style="width:auto;margin:0">本人による入力のみ表示</label>';
       var sym={o:'○',x:'✗','-':'空'};
       o+='<div style="max-height:360px;overflow:auto"><table class="blg-tbl"><thead><tr><th>時刻</th><th>入力者</th><th>部員</th><th>射</th><th>変更</th></tr></thead><tbody>'
         +rows.map(function(r){
           var c=r.c.split('>'),fix=c[0]!=='-';
           var d=new Date(r.t),tm=('0'+d.getHours()).slice(-2)+':'+('0'+d.getMinutes()).slice(-2)+':'+('0'+d.getSeconds()).slice(-2);
-          return '<tr'+(fix?' class="blg-fix"':'')+'><td>'+tm+'</td><td>'+esc(r.u||'?')+'</td><td>'+esc(r.m)+'</td><td>'+esc(r.i)+'</td><td>'+(sym[c[0]]||'')+'→'+(sym[c[1]]||'')+'</td></tr>';
+          return '<tr'+(_self(r)?' class="blg-self"':fix?' class="blg-fix"':'')+'><td>'+tm+'</td><td>'+esc(r.u||'?')+'</td><td>'+esc(r.m)+'</td><td>'+esc(r.i)+'</td><td>'+(sym[c[0]]||'')+'→'+(sym[c[1]]||'')+'</td></tr>';
         }).join('')+'</tbody></table></div>'
         +(rows.length?'':'<div class="emp" style="padding:8px 0">該当なし</div>');
     }
@@ -2681,9 +2676,8 @@ function toggleBunShot(name,idx){
   var cur=(bunData[name]||[])[idx];if(cur===undefined)cur=null;
   setBunShot(name,idx,cur===null?true:cur===true?false:null);
 }
-/* マスの値を変える唯一の入口。自分の列（管理者以外）は変えられない。変更は履歴に残す */
+/* マスの値を変える唯一の入口。変更は履歴に残す */
 function setBunShot(name,idx,v){
-  if(bunCellOwn(name,idx))return;
   if(!bunData[name])bunData[name]=new Array(bunShotCount()).fill(null);
   var prev=bunData[name][idx];if(prev===undefined)prev=null;
   if(prev===v)return;
