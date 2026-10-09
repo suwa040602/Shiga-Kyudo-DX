@@ -295,7 +295,7 @@ button.tap-bounce{animation:tapBounce .12s ease-out}
    ・マイナー : 機能の追加・仕様の変更（パッチは0に戻す）
    ・パッチ : バグ修正・見た目の微調整・名称変更など
    履歴: v1 build1(6/8 端末内版) / v2 build53(6/13 Firebase共有) / v3 build117(7/2 日付ベース記録) / v4 build170(7/15 4タブ構成) / v5 build260(10/6 記録単位の同期・PINハッシュ化) */
-var APP_VERSION='5.3.1',APP_BUILD=272;
+var APP_VERSION='5.3.2',APP_BUILD=273;
 (function(){var el=document.getElementById('app-ver');if(el)el.textContent='v'+APP_VERSION+' (build '+APP_BUILD+')';})();
 var SEED_E=[];
 var SEED_M=[];
@@ -1156,6 +1156,7 @@ var newsView='list',newsEditId=null,newsDelId=null;
 var newsForm={title:'',body:'',important:false};
 var overlay='';       // '' | 'news' | 'settings'
 var histOpen=false;   // 成績表下部の履歴セクション開閉
+var HIST_PAGE=50,histLimit=50;   // 履歴は新しい順に50件ずつ表示（全件を毎回作ると重い）
 function getBkupTs(){try{return parseInt(localStorage.getItem(BKUP_KEY)||'0',10);}catch(e){return 0;}}
 function saveBkupTs(){try{localStorage.setItem(BKUP_KEY,Date.now());}catch(e){}}
 function bkupDaysAgo(){var t=getBkupTs();if(!t)return 9999;return Math.floor((Date.now()-t)/86400000);}
@@ -1857,6 +1858,9 @@ function paint(){
       +'<button class="news-banner-x" data-news-dismiss="'+n.id+'" title="閉じる">×</button>'
     +'</div>';
   });
+  /* 設定・お知らせを開いている間は、裏の画面は見えないので作り直さない（閉じたときにまとめて作り直す）。
+     裏がマイページだと作り直しが重く、設定の操作がもたつくため */
+  if(overlay&&document.getElementById('con').childNodes.length){renderOverlay();bindDynamic();return;}
   var _wkScroll=document.getElementById('wk-modal-scroll');
   var _wkScrollTop=_wkScroll?_wkScroll.scrollTop:0;
   var _con=document.getElementById('con');
@@ -2098,7 +2102,7 @@ var CLICK_ID={
   'btn-lock-now':function(){lockNow();},
   'btn-bio-reg':function(){bioRegister();},
   'btn-bio-del':function(){bioRemove();},
-  'btn-hist-toggle':function(){histOpen=!histOpen;paint();}
+  'btn-hist-toggle':function(){histOpen=!histOpen;histLimit=HIST_PAGE;paint();}
 };
 var CHANGE_ID={
   'bun-date':function(el){if(bunDate!==el.value)bunOrder=null;bunDate=el.value;paint();},   // 日付が変われば並び順の基準（前週）も変わるので作り直す
@@ -2111,7 +2115,7 @@ var CHANGE_ID={
   'sel-fg':function(el){fGender=el.value;paint();},
   'sel-sk':function(el){sesKey=el.value;rankExpandName='';paint();},
   'sel-indiv':function(el){indivMb=el.value;indivView='official';indivMoExpand='';indivWkExpand='';indivWkLimit=12;paint();},
-  'sel-hmb':function(el){histMb=el.value;paint();},
+  'sel-hmb':function(el){histMb=el.value;histLimit=HIST_PAGE;mergeSel=[];mergeConfirm=false;paint();},
   'self-name':function(el){selfLoginName=el.value;paint();},
   'blg-onlyfix':function(el){blgOnlyFix=!!el.checked;paint();},
   'blg-onlyself':function(el){blgOnlySelf=!!el.checked;paint();},
@@ -2207,7 +2211,8 @@ var CLICK_ATTR=[
   ['data-mo-expand',function(el){var k=el.getAttribute('data-mo-expand');indivMoExpand=(indivMoExpand===k)?'':k;paint();}],
   ['data-wk-expand',function(el){var k=el.getAttribute('data-wk-expand');indivWkExpand=(indivWkExpand===k)?'':k;paint();}],
   ['data-edit-id',function(el){if(!canEditHistory())return;var id=parseInt(el.getAttribute('data-edit-id'),10);var rec=S.find(function(x){return x.id===id;})||{};editId=id;editForm={date:rec.date||'',sh:rec.sh,hi:rec.hi,seq:(typeof rec.seq==='string'&&rec.seq.length===rec.sh)?efPadSeq(rec.seq.split('')):null};pDel=null;paint();}],
-  ['data-ef-mark',function(el){var i=+el.getAttribute('data-ef-mark');if(editForm.seq&&i<editForm.seq.length){var c=editForm.seq[i];editForm.seq[i]=c==='1'?'0':c==='0'?'':'1';paint();}}],
+  ['data-ef-mark',function(el){var i=+el.getAttribute('data-ef-mark');if(editForm.seq&&i<editForm.seq.length){var c=editForm.seq[i];editForm.seq[i]=c==='1'?'0':c==='0'?'':'1';efRefreshMark(el,i);}}],
+  ['data-hist-more',function(){histLimit+=HIST_PAGE;paint();}],
   ['data-edit-cancel',function(){editId=null;paint();}],
   ['data-edit-save',function(el){if(!canEditHistory())return;doEditSave(parseInt(el.getAttribute('data-edit-save'),10));}],
   ['data-merge-toggle',function(){if(!canEditHistory())return;mergeToggle();}],
@@ -3657,7 +3662,15 @@ function curMonth(){return jstNow().toISOString().slice(0,7);}
 /* 週は「月曜〜日曜の7日間」。キーはその週の月曜日の日付（YYYY-MM-DD）。月はまたいでも1週として扱う */
 function _ymdUTC(t){var d=new Date(t);return d.getUTCFullYear()+'-'+('0'+(d.getUTCMonth()+1)).slice(-2)+'-'+('0'+d.getUTCDate()).slice(-2);}
 function _utcOf(ds){var p=String(ds||'').split('-');if(p.length<3)return NaN;return Date.UTC(+p[0],+p[1]-1,+p[2]);}
-function wkOf(ds){var t=_utcOf(ds);if(isNaN(t))return '';var dow=(new Date(t).getUTCDay()+6)%7;return _ymdUTC(t-dow*86400000);}
+/* 日付→その週の月曜。全記録で何度も呼ばれるので、一度計算した日付は覚えておく */
+var _wkCache={};
+function wkOf(ds){
+  var c=_wkCache[ds];if(c!==undefined)return c;
+  var t=_utcOf(ds),r='';
+  if(!isNaN(t)){var dow=(new Date(t).getUTCDay()+6)%7;r=_ymdUTC(t-dow*86400000);}
+  if(typeof ds==='string')_wkCache[ds]=r;
+  return r;
+}
 function wkAdd(k,days){var t=_utcOf(k);return isNaN(t)?'':_ymdUTC(t+days*86400000);}
 function _md(ds){var p=ds.split('-');return parseInt(p[1],10)+'/'+parseInt(p[2],10);}
 /* 表示用：9/28〜10/4。今年以外・年をまたぐ週は先頭に年を付ける（2025/12/29〜1/4） */
@@ -5208,9 +5221,14 @@ function tHi(){
             ?'<button class="btn bi" style="padding:7px 12px" data-merge-next="1">統合へ →</button>'
             :'<span style="font-size:11px;color:var(--faint)">2件以上選択</span>')
         +'</div></div>';
+    } else if(histMb==='all'){
+      // 全部員の記録を並べると重いので、先に部員を選んでもらう
+      out+='<div class="emp" style="padding:16px 4px">上のリストで統合する部員を選んでください。</div>';
+      return out;
     } else {
-      out+='<div style="font-size:11.5px;color:var(--sub);margin-bottom:8px;padding:0 2px">統合したい記録をタップして選択してください（同じ部員のみ選べます）。</div>';
+      out+='<div style="font-size:11.5px;color:var(--sub);margin-bottom:8px;padding:0 2px">統合したい記録をタップして選択してください。</div>';
     }
+    if(selMb&&histMb==='all')rev=rev.filter(function(e){return e.mb===selMb;});
     rev.forEach(function(e){
       var checked=mergeSel.indexOf(e.id)>=0;
       var disabled=selMb&&e.mb!==selMb&&!checked;
@@ -5226,8 +5244,9 @@ function tHi(){
     return out;
   }
 
-  // ---- 通常表示 ----
-  rev.forEach(function(e){
+  // ---- 通常表示（新しい順に histLimit 件まで） ----
+  var restN=Math.max(0,rev.length-histLimit);
+  rev.slice(0,histLimit).forEach(function(e){
     var isPend=pDel===e.id;
     var isEdit=editId===e.id&&canEditHistory();
     var inputDate=e.id>1e12?new Date(e.id).toLocaleDateString('ja-JP',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'}):'';
@@ -5268,6 +5287,7 @@ function tHi(){
         +'</div></div>';
     }
   });
+  if(restN)out+='<button class="btn bh" data-hist-more="1" style="width:100%;margin-top:6px;padding:10px;font-size:13px">さらに表示（残り'+restN+'件）</button>';
   return out;
 }
 function doDel(id){if(!canEditHistory())return;S=S.filter(function(e){return e.id!==id;});pDel=null;editId=null;svS();fl('記録を削除しました');paint();}
@@ -5278,19 +5298,30 @@ function efPadSeq(a){
   while(a.length<n)a.push('');
   return a;
 }
+function _efMarkStyle(c){
+  return 'flex:1;max-width:52px;height:44px;margin:0;border:1px solid var(--ln);border-radius:8px;font-size:22px;font-weight:800;background:'
+    +(c==='1'?'#e8f3ea':c==='0'?'var(--acc-bg)':'var(--sf)')+';color:'+(c==='1'?'var(--good)':'var(--bad)');
+}
+/* ○✗を押したときは、そのマスと「的中/射数」だけを書き換える（画面全体は作り直さない） */
+function efRefreshMark(el,i){
+  var c=editForm.seq[i];
+  el.setAttribute('style',_efMarkStyle(c));el.textContent=c==='1'?'○':c==='0'?'✗':'';
+  var cnt=document.getElementById('ef-count');
+  if(cnt)cnt.textContent=editForm.seq.filter(function(x){return x==='1';}).length+'/'+editForm.seq.filter(function(x){return x!=='';}).length+'本';
+}
 function efMarksUI(seq){
   var hi=seq.filter(function(c){return c==='1';}).length,sh=seq.filter(function(c){return c!=='';}).length,rows='';
   for(var r=0;r*4<seq.length;r++){
     var cells='';
     for(var j=r*4;j<Math.min(seq.length,r*4+4);j++){
-      var c=seq[j],bg=c==='1'?'#e8f3ea':c==='0'?'var(--acc-bg)':'var(--sf)',fg=c==='1'?'var(--good)':'var(--bad)';
-      cells+='<button data-ef-mark="'+j+'" style="flex:1;max-width:52px;height:44px;margin:0;border:1px solid var(--ln);border-radius:8px;font-size:22px;font-weight:800;background:'+bg+';color:'+fg+'">'+(c==='1'?'○':c==='0'?'✗':'')+'</button>';
+      var c=seq[j];
+      cells+='<button data-ef-mark="'+j+'" style="'+_efMarkStyle(c)+'">'+(c==='1'?'○':c==='0'?'✗':'')+'</button>';
     }
     rows+='<div style="display:flex;align-items:center;gap:6px;margin-bottom:6px"><span style="width:54px;flex:none;white-space:nowrap;font-size:11px;color:var(--sub)">'+(r*4+1)+'〜'+(r*4+4)+'射</span>'+cells+'</div>';
   }
   return '<div style="margin:10px 0 8px">'
     +'<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px"><label style="margin:0">1射ごとの的中（タップで ○→✗→空）</label>'
-      +'<span class="mono" style="font-size:13px;font-weight:700">'+hi+'/'+sh+'本</span></div>'
+      +'<span id="ef-count" class="mono" style="font-size:13px;font-weight:700">'+hi+'/'+sh+'本</span></div>'
     +rows
     +'</div>';
 }
